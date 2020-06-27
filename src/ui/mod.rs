@@ -114,12 +114,14 @@ impl<L: Layout> App<L> {
 
         let (vbo, ibo) = ctx.flush(device.clone());
 
-        AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap()
+        let mut cmd_builder = AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap();
+
+        cmd_builder
             .begin_render_pass(fb.clone(), false, vec![[0.1, 0.3, 1.0, 1.0].into(), 1f32.into()]).unwrap()
             .draw_indexed(gp.clone(), &DynamicState::none(), vec!(vbo.clone()), ibo.clone(), (), ()).unwrap()
-            .end_render_pass().unwrap()
-            .build()
-            .unwrap()
+            .end_render_pass().unwrap();
+
+        cmd_builder.build().unwrap()
     }
 
     pub fn update() {

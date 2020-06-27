@@ -1,8 +1,14 @@
 use winit::dpi::PhysicalSize;
 
-use cgmath::{Point3, Deg};
 use std::ops::{Div, Mul, Add, Sub};
 use std::fmt::Debug;
+
+use num_traits::float::Float;
+
+use na::{
+    Matrix4,
+    Point3
+};
 
 
 pub enum BlockFace {
@@ -11,11 +17,11 @@ pub enum BlockFace {
     Front, Back,
 }
 
+#[derive(Debug)]
 pub enum CamDirection {
     Forward, Backward,
     Leftward, Rightward,
     Upward, Downward,
-    None,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -24,7 +30,7 @@ pub struct Dimension<T: Copy + Div + Mul> {
     pub width: T,
 }
 
-impl<T: Copy + Div + Mul> Dimension<T> {
+impl<T: Copy + Div + Mul + Into<f64>> Dimension<T> {
     pub fn new(height: T, width: T) -> Self {
         Self {
             height,
@@ -38,8 +44,8 @@ impl<T: Copy + Div + Mul> Dimension<T> {
     }
 
     // returns the aspect ratio
-    pub fn aspect(&self) -> <T as std::ops::Div>::Output {
-        self.width / self.height
+    pub fn aspect(&self) -> f64 {
+        self.width.into() / self.height.into()
     }
 }
 
@@ -82,39 +88,6 @@ impl<T> Position<T>
             z,
         }
     }
-
-    // multiply the whole (x, y, z) by a value
-    pub fn mlp(&self, val: T) -> Position<<T as Mul>::Output>
-        where <T as Mul>::Output: PartialEq + Copy + Debug
-    {
-        Position {
-            x: self.x * val,
-            y: self.y * val,
-            z: self.z * val,
-        }
-    }
-
-    // addition the whole (x, y, z) by a value
-    pub fn add(&self, val: T) -> Position<<T as Add>::Output>
-        where <T as Add>::Output: PartialEq + Copy + Debug
-    {
-        Position {
-            x: self.x + val,
-            y: self.y + val,
-            z: self.z + val,
-        }
-    }
-
-    // subtraction the whole (x, y, z) by a value
-    pub fn sub(&self, val: T) -> Position<<T as Sub>::Output>
-        where <T as Sub>::Output: PartialEq + Copy + Debug
-    {
-        Position {
-            x: self.x - val,
-            y: self.y - val,
-            z: self.z - val,
-        }
-    }
 }
 
 impl Default for Position<f32> {
@@ -137,49 +110,65 @@ impl Default for Position<u32> {
     }
 }
 
-impl<T: Copy+PartialEq+Debug> From<Position<T>> for Point3<T> {
-    fn from(item: Position<T>) -> Self {
+impl<T: Copy + PartialEq + Debug + 'static> From<Point3<T>> for Position<T> {
+    fn from(item: Point3<T>) -> Self {
         Self {
-            x: item.x,
-            y: item.y,
-            z: item.z,
+            x: item.coords.data[0],
+            y: item.coords.data[1],
+            z: item.coords.data[2]
         }
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct Rotation<T: Copy + Debug> {
+pub struct Rotation<T: Copy + Debug + PartialEq + Float> {
     pub x: T,
     pub y: T,
     pub z: T,
 }
 
-impl<T: Copy + Debug> Rotation<T> {
-    pub fn new(x: T, y: T, z: T) -> Self {
+impl Rotation<f32> {
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self {
             x,
             y,
             z,
         }
     }
-}
 
-impl Default for Rotation<Deg<f32>> {
-    fn default() -> Self {
-        Self {
-            x: Deg(0.0),
-            y: Deg(0.0),
-            z: Deg(0.0),
-        }
+    pub fn matrix(&self) -> Matrix4<f32> {
+        let sx = self.x.sin();
+        let cx = self.x.cos();
+        let sy = self.y.sin();
+        let cy = self.y.cos();
+        let sz = self.z.sin();
+        let cz = self.z.cos();
+
+        Matrix4::new( // z
+             cz, -sz, 0.0, 0.0,
+             sz,  cz, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        ) * Matrix4::new( // y
+             cy, 0.0,  sy, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            -sy, 0.0,  cy, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        ) * Matrix4::new( // x
+            1.0, 0.0, 0.0, 0.0,
+            0.0,  cx, -sx, 0.0,
+            0.0,  sx,  cx, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        )
     }
 }
 
-impl Default for Rotation<u32> {
+impl Default for Rotation<f32> {
     fn default() -> Self {
         Self {
-            x: 0,
-            y: 0,
-            z: 0,
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
         }
     }
 }

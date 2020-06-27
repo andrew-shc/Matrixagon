@@ -1,9 +1,12 @@
 use crate::player::camera::Camera;
+
 use std::fmt::{Debug, Formatter};
 use std::fmt;
 
 pub mod camera;
 
+
+pub const CHUNK_RADIUS: u32 = 1;
 
 pub struct Player {
     pub camera: Camera,
@@ -12,7 +15,7 @@ pub struct Player {
 impl Player {
     pub fn new() -> Self {
         Self {
-            camera: Camera::new(1.0,1.0)
+            camera: Camera::new(0.005,0.2)
         }
     }
 }

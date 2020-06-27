@@ -88,9 +88,7 @@ impl<'c> MainApp<'c, lyt::StackLayout> {
         let app_gp = app.render_gp(device.clone(), dimensions);
         // TODO: a separate struct to write pure ui code for the app?
 
-        // let mut texture: Texture<'static> = Texture::new(queue.clone());
-        let texture = Texture::new(queue.clone());
-        let mut world = World::new(device.clone(), texture, renderpass.clone(), dimensions);
+        let mut world = World::new(device.clone(), queue.clone(), renderpass.clone(), dimensions);
 
         let future = Some(world.bind_texture(future.unwrap()));
 
@@ -115,7 +113,8 @@ impl<'c> MainApp<'c, lyt::StackLayout> {
 
     // updates the app; the app also should automatically renders the screen
     pub fn update(&mut self, dimensions: dt::Dimension<u32>) {
-        println!("APP - UPDATE");
+        // println!("APP - UPDATE");
+
         // cleans the previous buffer
         self.prev_frame.as_mut().unwrap().cleanup_finished();
 

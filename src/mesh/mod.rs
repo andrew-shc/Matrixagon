@@ -1,6 +1,6 @@
 use self::cube::Cube;
 use crate::mesh::cube::Side;
-use crate::chunk::Chunk;
+use crate::chunk::{Chunk, ChunkUpdate};
 use crate::shader::{VertexType, IndexType};
 use crate::world::ChunkID;
 use crate::texture::{Texture, TextureID};
@@ -92,6 +92,7 @@ impl<'c> Meshes<'c> {
         renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
         dimensions: Dimension<u32>,
         rerender: bool,
+        chunk_status: ChunkUpdate,
     ) -> Vec<(
         Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
         DynamicState,  // dynamic state for display
@@ -101,7 +102,7 @@ impl<'c> Meshes<'c> {
         (),   // push-down constants TODO: A Generic Return of PushDown Constants
     )> {
         let mut gp_data = Vec::new();
-        gp_data.push(self.cube.render(device.clone(), renderpass.clone(), dimensions, rerender));
+        gp_data.push(self.cube.render(device.clone(), renderpass.clone(), dimensions, rerender, chunk_status));
         gp_data
     }
 }
@@ -118,10 +119,11 @@ pub trait Mesh {
     fn remv_chunk(&mut self, id: &ChunkID);  // remove the chunk from the chunk database of the mesh
     fn updt_world(&mut self, dimensions: Dimension<u32>, player: &Player);  // updates world-bound info
     fn render<'b>(&mut self,
-              device: Arc<Device>,
-              render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
-              dimensions: Dimension<u32>,
-              rerender: bool,
+                  device: Arc<Device>,
+                  render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+                  dimensions: Dimension<u32>,
+                  rerender: bool,
+                  chunk_status: ChunkUpdate,
     ) -> (
             Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
             DynamicState,  // dynamic state for display
@@ -137,7 +139,7 @@ pub trait Mesh {
 // the only things this was needed is for convenience and future implication on adding meshes
 pub trait MeshesExt {
     fn draw_mesh<V, I>(
-        self,
+        &mut self,
         mesh_data: (
             Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
             DynamicState,  // dynamic state for display
@@ -145,7 +147,7 @@ pub trait MeshesExt {
             Arc<CpuAccessibleBuffer<[I]>>,  // index buffer
             Vec<Arc<dyn DescriptorSet+Send+Sync>>,   // sets (aka uniforms) buffer
             (),   // constants TODO: generic type
-    )) -> Result<Self, DrawIndexedError>
+    )) -> Result<&mut Self, DrawIndexedError>
         where Self: Sized,
               V: VertexType + Send + Sync + 'static,
               I: Index + Send + Sync + 'static,
@@ -154,7 +156,7 @@ pub trait MeshesExt {
 
 impl MeshesExt for AutoCommandBufferBuilder {
     fn draw_mesh<V, I>(
-        self,
+        &mut self,
         mesh_data: (
             Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
             DynamicState,  // dynamic state for display
@@ -163,7 +165,7 @@ impl MeshesExt for AutoCommandBufferBuilder {
             Vec<Arc<dyn DescriptorSet+Send+Sync>>,   // sets (aka uniforms) buffer
             (),   // push constants TODO: generic type
         )
-    ) -> Result<Self, DrawIndexedError>  // TODO: Vulkano 0.19.0 uses `&mut Self`
+    ) -> Result<&mut Self, DrawIndexedError>  // TODO: Vulkano 0.19.0 uses `&mut Self`
             where Self: Sized,
                   V: VertexType + Send + Sync + 'static,
                   I: Index + Send + Sync + 'static,

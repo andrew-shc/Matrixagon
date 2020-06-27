@@ -6,20 +6,20 @@ use vulkano::sync::NowFuture;
 
 use std::sync::Arc;
 use std::io::Cursor;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::mem;
 
 use png;
 
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct TextureID(pub u32, pub &'static str);
 
 pub struct Texture {
     queue: Arc<Queue>,
 
     txtr_cnt: u32,  // texture ID counter
-    textures: HashMap<TextureID, TextureComponent>,
+    textures: BTreeMap<TextureID, TextureComponent>,
     futures: Vec<CommandBufferExecFuture<NowFuture, AutoCommandBuffer>>,
 }
 
@@ -29,7 +29,7 @@ impl Texture {
             queue: queue.clone(),
 
             txtr_cnt: 0,
-            textures: HashMap::new(),
+            textures: BTreeMap::new(),
             futures: Vec::new(),
         }
     }
@@ -55,10 +55,10 @@ impl Texture {
         let mut texture_id = None;
         for (id, _) in self.textures.iter() {
             if id.1 == name {
-                texture_id = Some(id);
+                texture_id = Some(id.clone());
             }
         };
-        Some(*(texture_id.clone().unwrap()))  // clones the ID, then unwraps it to deref the internal data and then wrap it again with Some
+        texture_id  // clones the ID, then unwraps it to deref the internal data and then wrap it again with Some
     }
 
     pub fn texture_id(&self, id: &TextureID) -> &TextureComponent {
@@ -81,7 +81,7 @@ impl Texture {
     // TODO: might need to turn it into a static array
     pub fn texture_array(&self) -> Vec<Arc<ImmutableImage<Format>>> {
         let mut textures = Vec::new();
-        for (id, txtr) in self.textures.iter() {
+        for (_id, txtr) in self.textures.iter() {
             textures.push(txtr.texture.clone());
         }
         textures

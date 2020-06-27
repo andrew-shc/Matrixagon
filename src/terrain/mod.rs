@@ -8,7 +8,6 @@ use crate::texture::Texture;
 use oorandom::Rand32;
 
 use std::collections::HashMap;
-use std::ops::Range;
 
 
 pub struct Terrain {
@@ -24,7 +23,7 @@ impl Terrain {
         blocks.insert("air".into(),
                       Block::new(
                           "air".into(),
-                          MeshType::cube_all(texture.id_name("test".into()).unwrap()),
+                          MeshType::cube_all(texture.id_name("air".into()).unwrap()),
                           BlockState {transparent: true, ..Default::default()}
                       )
         );
@@ -45,7 +44,14 @@ impl Terrain {
         blocks.insert("stone".into(),
                       Block::new(
                           "stone".into(),
-                          MeshType::cube_all(texture.id_name("test".into()).unwrap()),
+                          MeshType::Cube {
+                              top: texture.id_name("zenith".into()).unwrap(),
+                              bottom: texture.id_name("nadir".into()).unwrap(),
+                              left: texture.id_name("west".into()).unwrap(),
+                              right: texture.id_name("east".into()).unwrap(),
+                              front: texture.id_name("south".into()).unwrap(),
+                              back: texture.id_name("north".into()).unwrap(),
+                          },
                           BlockState {..Default::default()}
                       )
         );
@@ -55,7 +61,7 @@ impl Terrain {
         }
     }
 
-    pub fn generate_chunk(&self, position: Position<u32>) -> Box<[Block; CHUNK_BLOCKS]> {
+    pub fn generate_chunk(&self, position: Position<i64>) -> Box<[Block; CHUNK_BLOCKS]> {
         println!("Terrain size allocated: {:?} Blocks", CHUNK_BLOCKS);
 
         let blocks = (0..CHUNK_BLOCKS).map(|n| {

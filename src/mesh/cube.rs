@@ -1,6 +1,6 @@
-use crate::datatype::Dimension;
+use crate::datatype::{Dimension, Position};
 use crate::mesh::{Mesh, MeshType};
-use crate::chunk::{Chunk, CHUNK_SIZE};
+use crate::chunk::{Chunk, CHUNK_SIZE, ChunkUpdate};
 use crate::shader::{CubeVert, cube_vs, cube_fs};
 use crate::world::ChunkID;
 use crate::block::Block;
@@ -14,7 +14,7 @@ use vulkano::pipeline::{GraphicsPipelineAbstract, GraphicsPipeline};
 use vulkano::command_buffer::DynamicState;
 use vulkano::buffer::{CpuAccessibleBuffer, BufferUsage, CpuBufferPool};
 use vulkano::sampler::{Sampler, SamplerAddressMode, Filter, MipmapMode};
-use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
+use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, PersistentDescriptorSetBuilderArray};
 use vulkano::descriptor::DescriptorSet;
 use vulkano::buffer::cpu_pool::CpuBufferPoolSubbuffer;
 use vulkano::memory::pool::{StdMemoryPool, PotentialDedicatedAllocation, StdMemoryPoolAlloc};
@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::iter;
 use std::rc::Rc;
 use std::marker::PhantomData;
+use std::any::Any;
 
 
 const CUBE_FACES: u32 = 6;  // 6 faces in a cube (duh)
@@ -54,6 +55,9 @@ pub struct Cube<'c> {
     persp_buf: Option<CpuBufferPoolSubbuffer<cube_vs::ty::MVP, Arc<StdMemoryPool>>>,
     sampler: Arc<Sampler>,
 
+    vertices: Vec<<Self as Mesh>::Vertex>,  // aggregated vertices (stored to optimize)
+    indices: Vec<<Self as Mesh>::Index>,  // aggregated indices (stored to optimize)
+
     TEMP_LIFETIME: PhantomData<&'c str>, // TODO: we may revert back to references or change req. lifetime again
 }
 
@@ -81,7 +85,10 @@ impl<'c> Cube<'c> {
             persp_buf: None,
             sampler: Sampler::new(device.clone(), Filter::Nearest, Filter::Nearest,
                                   MipmapMode::Nearest, SamplerAddressMode::Repeat, SamplerAddressMode::Repeat,
-                                  SamplerAddressMode::Repeat, 0.0, 1.0, 0.0, 0.0).unwrap(),
+                                  SamplerAddressMode::Repeat, 0.0, 1.0, 0.0, 8.0).unwrap(),
+
+            vertices: Vec::new(),
+            indices: Vec::new(),
 
             TEMP_LIFETIME: PhantomData,
         }
@@ -128,14 +135,23 @@ impl<'c> Mesh for Cube<'c> {
     type PushConstants = ();
 
     fn load_chunk(&mut self, chunk: Rc<Chunk>) {
-        let start = chunk.position.clone().mlp(CHUNK_SIZE as u32);
-        let end = chunk.position.clone().mlp(CHUNK_SIZE as u32).add(CHUNK_SIZE as u32).sub(1);
+        let start = Position::new(
+            chunk.position.x * CHUNK_SIZE as i64,
+            chunk.position.y * CHUNK_SIZE as i64,
+            chunk.position.z * CHUNK_SIZE as i64,
+        );
+
+        let end = Position::new(
+            (chunk.position.x+1) * CHUNK_SIZE as i64 - 1,
+            (chunk.position.y+1) * CHUNK_SIZE as i64 - 1,
+            (chunk.position.z+1) * CHUNK_SIZE as i64 - 1,
+        );
 
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
         let get_block = |x, y, z| {
-            &chunk.block_data[x as usize*CHUNK_SIZE*CHUNK_SIZE+y as usize*CHUNK_SIZE+z as usize]
+            &chunk.block_data[(x as usize%CHUNK_SIZE)*CHUNK_SIZE*CHUNK_SIZE+(y as usize%CHUNK_SIZE)*CHUNK_SIZE+(z as usize%CHUNK_SIZE)]
         };
 
         println!("x {} {}", start.x, end.x);
@@ -152,23 +168,23 @@ impl<'c> Mesh for Cube<'c> {
 
                         // if if (1st: checks chunk border) {true} else {2nd: checks for nearby transparent block}
                         if if start.x == x {true} else {get_block(x-1, y, z).state.transparent && !block.state.transparent} {  // left face
-                            vertices.push(Self::Vertex { pos: [0.0+x as f32,0.0+y as f32,1.0+z as f32], ind: left.0, txtr: [0, 0]});
-                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,1.0+z as f32], ind: left.0, txtr: [0, 1]});
-                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,0.0+z as f32], ind: left.0, txtr: [1, 1]});
-                            vertices.push(Self::Vertex { pos: [0.0+x as f32,0.0+y as f32,0.0+z as f32], ind: left.0, txtr: [1, 0]});
+                            vertices.push(Self::Vertex { pos: [0.0+x as f32,0.0+y as f32,1.0+z as f32], ind: left.0, txtr: [0, 1]});
+                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,1.0+z as f32], ind: left.0, txtr: [0, 0]});
+                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,0.0+z as f32], ind: left.0, txtr: [1, 0]});
+                            vertices.push(Self::Vertex { pos: [0.0+x as f32,0.0+y as f32,0.0+z as f32], ind: left.0, txtr: [1, 1]});
                             faces += 1;
                         }
                         if if start.y == y {true} else {get_block(x, y-1, z).state.transparent && !block.state.transparent} {  // bottom face
                             vertices.push(Self::Vertex { pos: [0.0+x as f32,0.0+y as f32,0.0+z as f32], ind: bottom.0, txtr: [0, 0]});
-                            vertices.push(Self::Vertex { pos: [1.0+x as f32,0.0+y as f32,0.0+z as f32], ind: bottom.0, txtr: [0, 1]});
+                            vertices.push(Self::Vertex { pos: [1.0+x as f32,0.0+y as f32,0.0+z as f32], ind: bottom.0, txtr: [1, 0]});
                             vertices.push(Self::Vertex { pos: [1.0+x as f32,0.0+y as f32,1.0+z as f32], ind: bottom.0, txtr: [1, 1]});
-                            vertices.push(Self::Vertex { pos: [0.0+x as f32,0.0+y as f32,1.0+z as f32], ind: bottom.0, txtr: [1, 0]});
+                            vertices.push(Self::Vertex { pos: [0.0+x as f32,0.0+y as f32,1.0+z as f32], ind: bottom.0, txtr: [0, 1]});
                             faces += 1;
                         }
                         if if start.z == z {true} else {get_block(x, y, z-1).state.transparent && !block.state.transparent} {  // front face
-                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,0.0+z as f32], ind: front.0, txtr: [0, 0]});
+                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,0.0+z as f32], ind: front.0, txtr: [1, 1]});
                             vertices.push(Self::Vertex { pos: [1.0+x as f32,1.0+y as f32,0.0+z as f32], ind: front.0, txtr: [0, 1]});
-                            vertices.push(Self::Vertex { pos: [1.0+x as f32,0.0+y as f32,0.0+z as f32], ind: front.0, txtr: [1, 1]});
+                            vertices.push(Self::Vertex { pos: [1.0+x as f32,0.0+y as f32,0.0+z as f32], ind: front.0, txtr: [0, 0]});
                             vertices.push(Self::Vertex { pos: [0.0+x as f32,0.0+y as f32,0.0+z as f32], ind: front.0, txtr: [1, 0]});
                             faces += 1;
                         }
@@ -181,16 +197,16 @@ impl<'c> Mesh for Cube<'c> {
                         }
                         if if end.y == y {true} else {get_block(x, y+1, z).state.transparent && !block.state.transparent} {  // top face
                             vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,1.0+z as f32], ind: top.0, txtr: [0, 0]});
-                            vertices.push(Self::Vertex { pos: [1.0+x as f32,1.0+y as f32,1.0+z as f32], ind: top.0, txtr: [0, 1]});
+                            vertices.push(Self::Vertex { pos: [1.0+x as f32,1.0+y as f32,1.0+z as f32], ind: top.0, txtr: [1, 0]});
                             vertices.push(Self::Vertex { pos: [1.0+x as f32,1.0+y as f32,0.0+z as f32], ind: top.0, txtr: [1, 1]});
-                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,0.0+z as f32], ind: top.0, txtr: [1, 0]});
+                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,0.0+z as f32], ind: top.0, txtr: [0, 1]});
                             faces += 1;
                         }
                         if if end.z == z {true} else {get_block(x, y, z+1).state.transparent && !block.state.transparent} {  // back face
                             vertices.push(Self::Vertex { pos: [0.0+x as f32,0.0+y as f32,1.0+z as f32], ind: back.0, txtr: [0, 0]});
-                            vertices.push(Self::Vertex { pos: [1.0+x as f32,0.0+y as f32,1.0+z as f32], ind: back.0, txtr: [0, 1]});
+                            vertices.push(Self::Vertex { pos: [1.0+x as f32,0.0+y as f32,1.0+z as f32], ind: back.0, txtr: [1, 0]});
                             vertices.push(Self::Vertex { pos: [1.0+x as f32,1.0+y as f32,1.0+z as f32], ind: back.0, txtr: [1, 1]});
-                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,1.0+z as f32], ind: back.0, txtr: [1, 0]});
+                            vertices.push(Self::Vertex { pos: [0.0+x as f32,1.0+y as f32,1.0+z as f32], ind: back.0, txtr: [0, 1]});
                             faces += 1;
                         }
 
@@ -220,6 +236,7 @@ impl<'c> Mesh for Cube<'c> {
         self.chunks.push((chunk, vertices, indices));
     }
 
+    // TODO: Will probably be removed in future
     // re-evaluates the vertex and index data buffer
     fn updt_chunk(&mut self, id: &ChunkID) {
         unimplemented!()
@@ -234,16 +251,17 @@ impl<'c> Mesh for Cube<'c> {
         let (proj, view, world) = player.camera.gen_mvp(dimensions);
 
         self.persp_buf = Some(self.persp_mat.next(
-            cube_vs::ty::MVP {proj: proj.into(), view: view.into(), world: world.into()}
+            cube_vs::ty::MVP {proj: proj, view: view, world: world}
         ).unwrap());
     }
 
     // renders the buffers and pipeline; only merges the vertex and index data into a one large buffer
     fn render<'b>(&mut self,
-              device: Arc<Device>,
-              renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
-              dimensions: Dimension<u32>,
-              rerender: bool,
+                  device: Arc<Device>,
+                  renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
+                  dimensions: Dimension<u32>,
+                  rerender: bool,
+                  chunk_status: ChunkUpdate,
     ) -> (
             Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
             DynamicState,  // dynamic state for display
@@ -259,31 +277,38 @@ impl<'c> Mesh for Cube<'c> {
             );
         }
 
-        let mut vert_data: Vec<Self::Vertex> = Vec::new();
-        let mut indx_data: Vec<Self::Index> = Vec::new();
+        if  self.vertices.is_empty() ||
+            self.indices.is_empty() ||
+            (chunk_status & ChunkUpdate::BlockUpdate == ChunkUpdate::BlockUpdate)
+        {
+            self.vertices.clear();
+            self.indices.clear();
 
-
-        for (chunk, vertices, _indices) in self.chunks.iter() {
-            if chunk.visible {  // check if the chunk is visible to be loaded (using frustum culling)
-                vert_data.extend(vertices.iter());
-            }
-        }
-
-        for (chunk, _vertices, indices) in self.chunks.iter() {
-            if chunk.visible {
-                if indx_data.is_empty() {
-                    indx_data.extend(
-                        indices.iter()
-                    );
-                } else {
-                    // last number of the index is always that largest
-                    // IF using the format: 0 1 2 0 2 3
-                    let indx_max = indx_data.last().unwrap().clone();
-                    indx_data.extend(
-                        indices.iter().map(|&x| x+indx_max+1)
-                    );
+            for (chunk, vertices, _indices) in self.chunks.iter() {
+                if chunk.visible {  // check if the chunk is visible to be loaded (using frustum culling)
+                    self.vertices.extend(vertices.iter());
                 }
             }
+
+            for (chunk, _vertices, indices) in self.chunks.iter() {
+                if chunk.visible {
+                    if self.indices.is_empty() {
+                        self.indices.extend(
+                            indices.iter()
+                        );
+                    } else {
+                        // last number of the index is always that largest
+                        // IF using the format: 0 1 2 0 2 3
+                        let indx_max = self.indices.last().unwrap().clone();
+                        self.indices.extend(
+                            indices.iter().map(|&x| x+indx_max+1)
+                        );
+                    }
+                }
+            }
+
+            println!("Vertex length: {:?}", self.vertices.len());
+            println!("Index length: {:?}", self.indices.len());
         }
 
         // TODO: Automaticaly add texture buffers to sets
@@ -292,6 +317,13 @@ impl<'c> Mesh for Cube<'c> {
             .enter_array().unwrap()
             .add_sampled_image(self.textures[0].clone(), self.sampler.clone()).unwrap()
             .add_sampled_image(self.textures[1].clone(), self.sampler.clone()).unwrap()
+            .add_sampled_image(self.textures[2].clone(), self.sampler.clone()).unwrap()
+            .add_sampled_image(self.textures[3].clone(), self.sampler.clone()).unwrap()
+            .add_sampled_image(self.textures[4].clone(), self.sampler.clone()).unwrap()
+            .add_sampled_image(self.textures[5].clone(), self.sampler.clone()).unwrap()
+            .add_sampled_image(self.textures[6].clone(), self.sampler.clone()).unwrap()
+            .add_sampled_image(self.textures[7].clone(), self.sampler.clone()).unwrap()
+            .add_sampled_image(self.textures[8].clone(), self.sampler.clone()).unwrap()
             .leave_array().unwrap()
             .build().unwrap()
         );
@@ -302,19 +334,16 @@ impl<'c> Mesh for Cube<'c> {
             .build().unwrap()
         );
 
-        println!("Vertex length: {:?}", vert_data.len());
-        println!("Index length: {:?}", indx_data.len());
-
         (
             self.grph_pipe.clone(),
             DynamicState::none(),
             CpuAccessibleBuffer::from_iter(
                 device.clone(), BufferUsage::vertex_buffer(),
-                false, vert_data.into_iter()
+                false, self.vertices.clone().into_iter()
             ).unwrap(),
             CpuAccessibleBuffer::from_iter(
                 device.clone(), BufferUsage::index_buffer(),
-                false, indx_data.into_iter()
+                false, self.indices.clone().into_iter()
             ).unwrap(),
             vec![set0, set1],
             (),

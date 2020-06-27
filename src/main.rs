@@ -1,4 +1,6 @@
-
+#[macro_use]
+extern crate bitflags;
+extern crate nalgebra as na;
 
 use vulkano::{
     instance::{Instance, PhysicalDevice},
@@ -8,11 +10,10 @@ use vulkano::{
 use vulkano_win::VkSurfaceBuild;
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
+use winit::dpi::{Position, PhysicalPosition};
 
 use crate::app::MainApp;
 use crate::datatype::CamDirection;
-use cgmath::Deg;
-use winit::dpi::{Position, PhysicalPosition};
 
 mod ui;
 mod mesh;
@@ -27,6 +28,21 @@ mod shader;
 mod chunk;
 mod texture;
 
+/*
+Possible Names for Games:
+Borealis Exploris
+Aurora Borealis
+Tide Seeker
+Tidal Scouter
+Wandering Player
+Odyssey
+Infinite Perplexing World
+Perpetual Matrices of Geometry (PMG) <-----
+
+Subtitle: The Odyssey
+
+Borealis: The Perpetual Terrain of Blocks (BPTB) <-----
+ */
 
 fn main() {
     // main setup
@@ -93,14 +109,16 @@ fn main() {
                                 }
                             },
                             KeyboardInput { virtual_keycode: key, state: ElementState::Released, ..} => {
-                                match key.unwrap() {
-                                    K::A => { if pressed.contains(&K::A) {pressed.retain(|i| i != &K::A);} },
-                                    K::D => { if pressed.contains(&K::D) {pressed.retain(|i| i != &K::D);} },
-                                    K::W => { if pressed.contains(&K::W) {pressed.retain(|i| i != &K::W);} },
-                                    K::S => { if pressed.contains(&K::S) {pressed.retain(|i| i != &K::S);} },
-                                    K::LShift => { if pressed.contains(&K::LShift) {pressed.retain(|i| i != &K::LShift);} },
-                                    K::Space => { if pressed.contains(&K::Space) {pressed.retain(|i| i != &K::Space);} },
-                                    _ => {}
+                                if let Some(key) = key {
+                                    match key {
+                                        K::A => { if pressed.contains(&K::A) {pressed.retain(|i| i != &K::A);} },
+                                        K::D => { if pressed.contains(&K::D) {pressed.retain(|i| i != &K::D);} },
+                                        K::W => { if pressed.contains(&K::W) {pressed.retain(|i| i != &K::W);} },
+                                        K::S => { if pressed.contains(&K::S) {pressed.retain(|i| i != &K::S);} },
+                                        K::LShift => { if pressed.contains(&K::LShift) {pressed.retain(|i| i != &K::LShift);} },
+                                        K::Space => { if pressed.contains(&K::Space) {pressed.retain(|i| i != &K::Space);} },
+                                        _ => {}
+                                    }
                                 }
                             }
                         }
@@ -110,8 +128,12 @@ fn main() {
             },
             Event::DeviceEvent { event: DeviceEvent::MouseMotion { delta }, .. } => {
                 if !cmd_mode {
-                    println!("ROT X: {}, Y: {}", delta.1, delta.0);
-                    app.world.player.camera.rotate(-Deg(delta.1 as f32/10.0), Deg(delta.0 as f32/10.0), Deg(0.0));
+                    // println!("ROT X: {}, Y: {}", delta.1, delta.0);
+
+                    app.world.player.camera.rotate(delta.1 as f32, delta.0 as f32, 0.0);
+
+                    // app.world.player.camera.rotate(delta.1 as f32, 0.0, 0.0);
+                    // app.world.player.camera.rotate(0.0, delta.0 as f32, 0.0);
 
                     surface.window().set_cursor_position(
                         Position::Physical(PhysicalPosition{ x: dimensions.width as i32/2, y: dimensions.height as i32/2 })
@@ -124,12 +146,11 @@ fn main() {
                 let mut directions = Vec::new();
 
                 if pressed.contains(&K::A) {directions.push(CamDirection::Leftward)}
-                else if pressed.contains(&K::D) {directions.push(CamDirection::Rightward)}
-                else if pressed.contains(&K::W) {directions.push(CamDirection::Forward)}
-                else if pressed.contains(&K::S) {directions.push(CamDirection::Backward)}
-                else if pressed.contains(&K::LShift) {directions.push(CamDirection::Downward)}
-                else if pressed.contains(&K::Space)  {directions.push(CamDirection::Upward)}
-                else {directions.push(CamDirection::None)}
+                if pressed.contains(&K::D) {directions.push(CamDirection::Rightward)}
+                if pressed.contains(&K::W) {directions.push(CamDirection::Forward)}
+                if pressed.contains(&K::S) {directions.push(CamDirection::Backward)}
+                if pressed.contains(&K::LShift) {directions.push(CamDirection::Downward)}
+                if pressed.contains(&K::Space)  {directions.push(CamDirection::Upward)}
 
                 app.world.player.camera.travel(directions);
             },
