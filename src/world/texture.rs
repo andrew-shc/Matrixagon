@@ -15,6 +15,7 @@ use png;
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct TextureID(pub u32, pub &'static str);
 
+
 pub struct Texture {
     queue: Arc<Queue>,
 

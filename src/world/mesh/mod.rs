@@ -1,33 +1,38 @@
 use self::cube::Cube;
-use crate::mesh::cube::Side;
-use crate::chunk::{Chunk, ChunkUpdate};
-use crate::shader::{VertexType, IndexType};
-use crate::world::ChunkID;
-use crate::texture::{Texture, TextureID};
+use super::mesh::cube::Side;
+use super::chunk::{Chunk, ChunkUpdate};
+use super::shader::{VertexType, IndexType, cube_vs};
+use super::world::ChunkID;
+use super::texture::{Texture, TextureID};
 use crate::datatype::Dimension;
-use crate::player::Player;
+use super::player::Player;
 
 use vulkano::device::Device;
 use vulkano::framebuffer::RenderPassAbstract;
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DrawIndexedError, DynamicState};
 use vulkano::pipeline::GraphicsPipelineAbstract;
-use vulkano::buffer::{BufferAccess, TypedBufferAccess, CpuAccessibleBuffer};
+use vulkano::buffer::{BufferAccess, TypedBufferAccess, CpuAccessibleBuffer, CpuBufferPool};
 use vulkano::pipeline::input_assembly::Index;
+use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 
 use std::sync::Arc;
 use vulkano::descriptor::DescriptorSet;
 use std::rc::Rc;
+use crate::event::types::ChunkEvents;
+use crate::world::player::camera::Camera;
 
 
 pub mod cube;
 
 // MeshType denotes what type of meshes the object uses with the object's texture info
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MeshType {  // all TextureID has a same lifetime
+    // the specified world.block does not require a world.mesh
+    Null,
     // an texture id for each of the 6 side of the cube
     Cube {top: TextureID, bottom: TextureID, left: TextureID,
         right: TextureID, front: TextureID, back: TextureID},
-    // direction of each pane, since the Flora mesh uses 2 pane to create an x-shape
+    // direction of each pane, since the Flora world.mesh uses 2 pane to create an x-shape
     // Flora {positive: u8, negative: u8}
 }
 
@@ -55,14 +60,59 @@ impl MeshType {
             back: if let Side::Back = side {single.clone()} else {name.clone()},
         }
     }
+
+    pub fn cube_individual(top: TextureID, bottom: TextureID,
+                           left: TextureID, right: TextureID,
+                           front: TextureID, back: TextureID,
+    ) -> Self {
+        MeshType::Cube {
+            top: top.clone(),
+            bottom: bottom.clone(),
+            left: left.clone(),
+            right: right.clone(),
+            front: front.clone(),
+            back: back.clone(),
+        }
+    }
 }
 
-// a mesh manager struct for managing meshes and contexts
-pub struct Meshes<'c> {
-    cube: Cube<'c>,
+pub type MeshDataType<'b, V: VertexType + Send + Sync, I: IndexType + Send + Sync> = (
+    Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
+    DynamicState,  // dynamic state for display
+    Arc<CpuAccessibleBuffer<[V]>>,   // vertex buffer
+    Arc<CpuAccessibleBuffer<[I]>>,  // index buffer
+    Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
+    (),   // push-down constants TODO: A Generic Return of PushDown Constants
+);
+
+pub type MeshesDataType<'b> = Meshes<
+    MeshDataType<'b, <Cube<'b> as Mesh>::Vertex, <Cube<'b> as Mesh>::Index>,
+>;
+
+pub type MeshesStructType<'c> = Meshes<
+    Cube<'c>,
+>;
+
+// this struct is merely used to organized each individual meshes
+pub struct Meshes<C> {
+    pub cube: C,
+    // flora1: a x-shaped world.mesh for flora
+    // flora2: a tic-tac-toe shaped world.mesh for flora
+    // liquid: a similar shape to cube, but transparent and slightly lower on the top
+    // custom: a world.block-size bounded world.mesh
+    // debug: a line based rendering to show chunk borders, hitboxed, and all those goodies
 }
 
-impl<'c> Meshes<'c> {
+impl<C: Clone> Clone for Meshes<C> {
+    fn clone(&self) -> Self {
+        Self {
+            cube: self.cube.clone()
+        }
+    }
+}
+
+// a world mesh manager to manages multiple meshes at the same time
+impl<'c> MeshesStructType<'c> {
     pub fn new(
         device: Arc<Device>,
         txtr: &Texture,
@@ -76,8 +126,16 @@ impl<'c> Meshes<'c> {
         }
     }
 
-    pub fn load_chunk(&mut self, chunk: Rc<Chunk>) {
-        self.cube.load_chunk(chunk.clone());
+    pub fn add_chunk(&mut self, chunk_id: ChunkID) {
+        self.cube.add_chunk(chunk_id);
+    }
+
+    pub fn load_chunks(&mut self, chunks: &Vec<Chunk>) {
+        self.cube.load_chunks(&chunks);
+    }
+
+    pub fn remv_chunk(&mut self, id: ChunkID) {
+        self.cube.remv_chunk(id);
     }
 
     // update meshes
@@ -85,45 +143,70 @@ impl<'c> Meshes<'c> {
         self.cube.updt_world(dimensions, player);
     }
 
-    // TODO: rendering using .draw_mesh() off the CommandBufferBUilder
-    pub fn render<'d>(
+    // re-renders the vertex and index data
+    pub fn render<'b>(
         &mut self,
         device: Arc<Device>,
         renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
         dimensions: Dimension<u32>,
         rerender: bool,
-        chunk_status: ChunkUpdate,
-    ) -> Vec<(
-        Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
-        DynamicState,  // dynamic state for display
-        Arc<CpuAccessibleBuffer<[impl VertexType]>>,   // vertex buffer
-        Arc<CpuAccessibleBuffer<[impl Index]>>,  // index buffer
-        Vec<Arc<dyn DescriptorSet+Send+Sync+'d>>,   // sets (aka uniforms) buffer
-        (),   // push-down constants TODO: A Generic Return of PushDown Constants
-    )> {
-        let mut gp_data = Vec::new();
-        gp_data.push(self.cube.render(device.clone(), renderpass.clone(), dimensions, rerender, chunk_status));
-        gp_data
+        chunk_events: Vec<ChunkEvents>,
+    ) -> MeshesDataType<'b> {
+        Meshes {
+            cube: self.cube.render(device.clone(), renderpass.clone(), dimensions, rerender, chunk_events),
+        }
     }
 }
 
-// all meshes must be implemented by the mesh trait
+impl<'b> MeshesDataType<'b> {
+    // a way to intercept the buffer mesh datas to quickly update player position and rotation without
+    // the slowness from the chunk updates
+    pub fn update_camera(&mut self, device: Arc<Device>, cam: &Camera, dimensions: Dimension<u32>,) {
+        let (proj, view, world) = cam.gen_mvp(dimensions);
+
+        // TODO: Somehow manage the uniform (shared across the meshes) buffer
+        let persp_mat = CpuBufferPool::uniform_buffer(device.clone());
+
+        let persp_buf = Some(persp_mat.next(
+            cube_vs::ty::MVP {proj: proj, view: view, world: world}
+        ).unwrap());
+
+        let layout1 = self.cube.0.descriptor_set_layout(1).unwrap();
+        let set1 = Arc::new(PersistentDescriptorSet::start(layout1.clone())
+            .add_buffer(persp_buf.as_ref().unwrap().clone()).unwrap()
+            .build().unwrap()
+        );
+
+        self.cube.4 = vec![self.cube.4[0].clone(), set1];
+    }
+}
+
+// all meshes must be implemented by the world.mesh trait
 pub trait Mesh {
     type Vertex: VertexType + 'static;
     type Index: IndexType + 'static;
 
     type PushConstants; // optional pushdown constants
 
-    fn load_chunk(&mut self, chunk: Rc<Chunk>);  // add the chunk to the chunk database of the mesh
-    fn updt_chunk(&mut self, id: &ChunkID);  // updates the chunk (blocks, lighting, other chunk-bound info)
-    fn remv_chunk(&mut self, id: &ChunkID);  // remove the chunk from the chunk database of the mesh
+    // Mesh trait functionalities description:
+    // add_chunk(); when you want to add chunks
+    // load_chunk(); to load all the render data of the chunk to the world.mesh
+    // updt_chunk(); reloads all the render data of the chunk to the world.mesh TODO: whats the point?
+    // remv_chunk(); to remove the chunk reference to the world.mesh
+    // updt_world(); calls this when the world information needs to be updated
+    // render(); to return the graphic pipeline from the world.mesh to the main renderer
+
+    fn add_chunk(&mut self, chunk_id: ChunkID);  // adds the reference of the chunk to the chunk database of the world.mesh
+    fn load_chunks(&mut self, chunks: &Vec<Chunk>);  // loads all the chunks' data to the world.mesh's main vertices and indices vector
+    fn updt_chunks(&mut self, id: ChunkID);  // updates the chunk (blocks, lighting, other chunk-bound info)
+    fn remv_chunk(&mut self, id: ChunkID);  // remove the chunk from the chunk database of the world.mesh
     fn updt_world(&mut self, dimensions: Dimension<u32>, player: &Player);  // updates world-bound info
     fn render<'b>(&mut self,
                   device: Arc<Device>,
-                  render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+                  renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
                   dimensions: Dimension<u32>,
                   rerender: bool,
-                  chunk_status: ChunkUpdate,
+                  chunk_event: Vec<ChunkEvents>,
     ) -> (
             Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
             DynamicState,  // dynamic state for display
@@ -165,7 +248,7 @@ impl MeshesExt for AutoCommandBufferBuilder {
             Vec<Arc<dyn DescriptorSet+Send+Sync>>,   // sets (aka uniforms) buffer
             (),   // push constants TODO: generic type
         )
-    ) -> Result<&mut Self, DrawIndexedError>  // TODO: Vulkano 0.19.0 uses `&mut Self`
+    ) -> Result<&mut Self, DrawIndexedError>
             where Self: Sized,
                   V: VertexType + Send + Sync + 'static,
                   I: Index + Send + Sync + 'static,

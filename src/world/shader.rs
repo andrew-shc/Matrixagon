@@ -4,17 +4,17 @@ pub trait IndexType {}
 impl IndexType for u32 {}  // DEPRECATED: will be removing the index type in favor of vulkano's index
 
 
-#[derive(Default, Copy, Clone, Debug)]
+#[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct UIVert {
     pub pos: [f32; 2],  // 2D position
     pub col: [f32; 4],  // RGBA colors
 }
 
-#[derive(Default, Copy, Clone, Debug)]
+#[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct CubeVert {
     pub pos: [f32; 3],  // 3D position
     pub ind: u32,  // Texture array index
-    pub txtr: [u32; 2],  // TODO: try boolean, because there are only 1.0 and 0.0
+    pub txtr: [u32; 2],  // TODO: try one u32 (4 byte) to hole state: 1 2 3 4
 }
 
 vulkano::impl_vertex!(UIVert, pos, col);

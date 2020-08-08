@@ -1,5 +1,5 @@
 use crate::datatype as dt;
-use crate::shader::{UIVert, ui_simpl_vs as vs, ui_simpl_fs as fs};
+use crate::world::shader::{UIVert, ui_simpl_vs as vs, ui_simpl_fs as fs};
 
 use vulkano::buffer::{CpuAccessibleBuffer, BufferUsage};
 use vulkano::device::{Device, Queue};
@@ -109,7 +109,7 @@ impl<L: Layout> App<L> {
         if let Some(lyt) = &self.main_layout {
             lyt.clone().render(&mut ctx);
         } else {
-            println!("The UI central app layout has not been set yet");
+            // println!("The UI central app layout has not been set yet");
         }
 
         let (vbo, ibo) = ctx.flush(device.clone());

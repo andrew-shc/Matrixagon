@@ -1,6 +1,6 @@
 use winit::dpi::PhysicalSize;
 
-use std::ops::{Div, Mul, Add, Sub};
+use std::ops::{Div, Mul, Add, Sub, Neg};
 use std::fmt::Debug;
 
 use num_traits::float::Float;
@@ -9,7 +9,15 @@ use na::{
     Matrix4,
     Point3
 };
+use vulkano::memory::pool::AllocLayout::Linear;
+use crate::world::chunk::CHUNK_SIZE;
 
+// TODO: in future, there will be a custom float and integer type or uses another library's numeric types
+// an empty trait for all standard float
+trait StdFloat {}
+
+impl StdFloat for f32 {}
+impl StdFloat for f64 {}
 
 pub enum BlockFace {
     Top, Bottom,
@@ -23,6 +31,15 @@ pub enum CamDirection {
     Leftward, Rightward,
     Upward, Downward,
 }
+
+// pointing to which direction from the center
+#[derive(Debug)]
+pub enum Direction {
+    Up, Down,
+    Left, Right,
+    Front, Back,
+}
+
 
 #[derive(Debug, Copy, Clone)]
 pub struct Dimension<T: Copy + Div + Mul> {
@@ -77,7 +94,6 @@ pub struct Position<T: Copy + PartialEq + Debug> {
     pub z: T,
 }
 
-// TODO: impl Add and Subtract traits to the position
 impl<T> Position<T>
     where T: Copy + PartialEq + Debug + Mul + Add + Sub
 {
@@ -117,6 +133,18 @@ impl<T: Copy + PartialEq + Debug + 'static> From<Point3<T>> for Position<T> {
             y: item.coords.data[1],
             z: item.coords.data[2]
         }
+    }
+}
+
+impl Position<LocalBU> {
+
+    // converts the local world.block position into a flatten vector world.block position
+    pub fn into_vec_pos(self) -> usize {
+        let x = if self.x.0 >= 0.0 {self.x.0.floor() as usize} else {(self.x.0+CHUNK_SIZE as f32).floor() as usize};
+        let y = if self.x.0 >= 0.0 {self.y.0.floor() as usize} else {(self.y.0+CHUNK_SIZE as f32).floor() as usize};
+        let z = if self.x.0 >= 0.0 {self.z.0.floor() as usize} else {(self.z.0+CHUNK_SIZE as f32).floor() as usize};
+
+        x*CHUNK_SIZE*CHUNK_SIZE+y*CHUNK_SIZE+z
     }
 }
 
@@ -170,5 +198,363 @@ impl Default for Rotation<f32> {
             y: 0.0,
             z: 0.0,
         }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum LineIntersect<T: Copy + Clone + Debug> {
+    None,
+    // intersected at the point (x, y, z)
+    Intersected(T, T, T),
+    // if both lines are of same slope
+    Parallel,
+    // if both lines are of same slope and same y-intercept
+    Coincident,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Line<T: Copy + PartialEq + Debug> {
+    pub a: Position<T>,
+    pub b: Position<T>,
+}
+
+impl<T: Copy + PartialEq + Debug> Line<T> {
+    pub fn new(a: Position<T>, b: Position<T>) -> Self {
+        Self { a, b }
+    }
+}
+
+impl Line<f32> {
+    // NOTE: this intersection does not care about the third position z
+    pub fn intersect2d(&self, b: Line<f32>) -> LineIntersect<f32> {
+        Self::inner_intersect2d(*self, b)
+    }
+
+    // this is an associate function so the intersect3d can swizzle the components of line a (self)
+    fn inner_intersect2d(a: Line<f32>, b: Line<f32>) -> LineIntersect<f32> {
+        let ua_n = ((b.b.x-b.a.x)*(a.a.y-b.a.y) - (b.b.y-b.a.y)*(a.a.x-b.a.x));
+        let ua_d = ((b.b.y-b.a.y)*(a.b.x-a.a.x) - (b.b.x-b.a.x)*(a.b.y-a.a.y));
+        let ub_n = ((a.b.x-a.a.x)*(a.a.y-b.a.y) - (a.b.y-a.a.y)*(a.a.x-b.a.x));
+        let ub_d = ((b.b.y-b.a.y)*(a.b.x-a.a.x) - (b.b.x-b.a.x)*(a.b.y-a.a.y));
+
+        if (0.0 < ua_n/ua_d && ua_n/ua_d < 1.0) && (0.0 < ub_n/ub_d && ub_n/ub_d < 1.0) {
+            let x = a.a.x + (ua_n/ua_d)*(a.b.x-a.a.x);
+            let y = a.a.y + (ua_n/ua_d)*(a.b.y-a.a.y);
+
+            LineIntersect::Intersected(x, y, 0.0)
+        } else if ua_n == 0.0 && ua_d == 0.0 && ub_n == 0.0 && ub_d == 0.0 {
+            LineIntersect::Coincident
+        } else if ua_d == 0.0 && ub_d == 0.0 {
+            LineIntersect::Parallel
+        } else {
+            LineIntersect::None
+        }
+    }
+
+    // NOTE: this intersection uses all three xyz components composed of multiple intersect2d()
+    pub fn intersect3d(&self, b: Line<f32>) -> LineIntersect<f32> {
+
+        // most likely we only need 2 2D intersections; placed extra just in case
+        let x_plane = Self::inner_intersect2d(
+            Line::new(Position::new(self.a.z, self.a.y, 0.0), Position::new(self.b.z, self.b.y, 0.0)),
+            Line::new(Position::new(   b.a.z,    b.a.y, 0.0), Position::new(   b.b.z,    b.b.y, 0.0))
+        );
+        let y_plane = Self::inner_intersect2d(
+            Line::new(Position::new(self.a.x, self.a.z, 0.0), Position::new(self.b.x, self.b.z, 0.0)),
+            Line::new(Position::new(   b.a.x,    b.a.z, 0.0), Position::new(   b.b.x,    b.b.z, 0.0))
+        );
+        let z_plane = Self::inner_intersect2d(*self, b);
+
+        println!("Planes (xyz): {:?}", [x_plane, y_plane, z_plane]);
+
+        LineIntersect::None
+    }
+}
+
+// **************************************************************************
+// Following datatypes are the basic in-game units used for many calculations
+// **************************************************************************
+
+// The intermediate results when converting an unbounded numerical unit to a bounded LocalBU
+pub enum LocalBUIntermediate {
+    Ok(LocalBU),  // Successfully converted into a LocalBU unit
+    UBound(LocalBU),  // The value has to be modulated by chunk size
+}
+
+// TODO: using it later when domain restriction is added
+pub enum DomainRestriction {
+    Natural,  // 1,2,3,4,...
+    Whole,  // 0,1,2,3,4,...
+    Integer,  // ...,-2,-1,0,1,2,...
+    Rational,  // decimals that can be represented with fractions
+
+    // Restriction only stops add Rational since Irrational number don't truly exist in computers
+    // and imaginary numbers are adding additional complexity without much of a use in game
+}
+
+// TODO: implement more numerical operations so we dont have to publicize the inner data
+// TODO: add increment and decrement
+// TODO: add domain restriction for units (e.g. natural numbers, whole numbers, integers, etc.)
+#[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
+pub struct BlockUnit(pub f32);  // 1 In-Game Block Sized == 1 Meter; This is by default, should be global world.block unit
+#[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
+pub struct LocalBU(pub f32);  // Local Block Unit bounded by CHUNK_SIZE; Information will be lost through bounding
+#[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
+pub struct ChunkUnit(pub f32);  // 1 ChunkUnit = 32 BlockUnit
+#[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
+pub struct SectorUnit(pub f32);  // 1 SectorUnit = 16 ChunkUnit
+
+// BlockUnit, a.k.a wB (world Block unit)
+impl BlockUnit {
+    pub fn into_chunk(self) -> ChunkUnit {
+        ChunkUnit(self.0 / 32f32)
+    }
+
+    pub fn into_chunk_int(self) -> ChunkUnit {
+        ChunkUnit((self.0 / 32f32).floor())
+    }
+
+    pub fn into_sector(self) -> SectorUnit {
+        SectorUnit(self.0 / 32f32 / 16f32)
+    }
+
+    pub fn into_inner(self) -> f32 {
+        self.0
+    }
+
+    pub fn inner(&self) -> f32 {
+        self.0
+    }
+
+    pub fn into_local_bu(self) -> LocalBUIntermediate {
+        if self.0 == self.0 % CHUNK_SIZE as f32 {
+            LocalBUIntermediate::Ok(LocalBU(self.0))
+        } else {
+            LocalBUIntermediate::UBound(LocalBU(self.0))
+        }
+    }
+
+    // increment
+    pub fn incr(self) -> Self {
+        Self(self.0+1.0)
+    }
+
+    // decrement
+    pub fn decr(self) -> Self {
+        Self(self.0-1.0)
+    }
+}
+
+// LocalBU, a.k.a wLB (world Local Block unit)
+impl LocalBU {
+}
+
+// ChunkUnit, a.k.a wC (world Chunk unit)
+impl ChunkUnit {
+    pub fn into_block(self) -> BlockUnit {
+        BlockUnit(self.0 * CHUNK_SIZE as f32)
+    }
+
+    pub fn into_sector(self) -> SectorUnit {
+        SectorUnit(self.0 / 16f32)
+    }
+
+    pub fn into_inner(self) -> f32 {
+        self.0
+    }
+
+    pub fn inner(&self) -> f32 {
+        self.0
+    }
+
+    // increment
+    pub fn incr(self) -> Self {
+        Self(self.0+1.0)
+    }
+
+    // decrement
+    pub fn decr(self) -> Self {
+        Self(self.0-1.0)
+    }
+}
+
+// SectorUnit, a.k.a wS (world Sector unit)
+impl SectorUnit {
+    pub fn into_chunk(self) -> ChunkUnit {
+        ChunkUnit(self.0 * 16f32)
+    }
+
+    pub fn into_block(self) -> BlockUnit {
+        BlockUnit(self.0 * 16f32 * 32f32)
+    }
+
+    pub fn into_inner(self) -> f32 {
+        self.0
+    }
+
+    pub fn inner(&self) -> f32 {
+        self.0
+    }
+
+    // increment
+    pub fn incr(self) -> Self {
+        Self(self.0+1.0)
+    }
+
+    // decrement
+    pub fn decr(self) -> Self {
+        Self(self.0-1.0)
+    }
+}
+
+impl Add for BlockUnit {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl Sub for BlockUnit {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl Mul for BlockUnit {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self(self.0 * rhs.0)
+    }
+}
+
+impl Div for BlockUnit {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Self(self.0 / rhs.0)
+    }
+}
+
+impl Neg for BlockUnit {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(-self.0)
+    }
+}
+
+impl Add for LocalBU {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl Sub for LocalBU {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl Mul for LocalBU {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self(self.0 * rhs.0)
+    }
+}
+
+impl Div for LocalBU {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Self(self.0 / rhs.0)
+    }
+}
+
+impl Add for ChunkUnit {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl Sub for ChunkUnit {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl Mul for ChunkUnit {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self(self.0 * rhs.0)
+    }
+}
+
+impl Div for ChunkUnit {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Self(self.0 / rhs.0)
+    }
+}
+
+impl Neg for ChunkUnit {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(-self.0)
+    }
+}
+
+impl Add for SectorUnit {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl Sub for SectorUnit {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl Mul for SectorUnit {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self(self.0 * rhs.0)
+    }
+}
+
+impl Div for SectorUnit {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Self(self.0 / rhs.0)
+    }
+}
+
+impl Neg for SectorUnit {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(-self.0)
     }
 }

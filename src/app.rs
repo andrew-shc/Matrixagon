@@ -7,22 +7,24 @@ use vulkano::image::{SwapchainImage, AttachmentImage};
 use vulkano::framebuffer::{FramebufferAbstract, RenderPassAbstract, Framebuffer};
 use vulkano::sync;
 use vulkano::instance::PhysicalDevice;
+use vulkano::pipeline::GraphicsPipelineAbstract;
 
 use winit::window::Window;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::datatype as dt;
 use crate::ui;
 use crate::ui::{App, Layout};
 use crate::ui::layout as lyt;
 use crate::datatype::Dimension;
-use vulkano::pipeline::GraphicsPipelineAbstract;
-use crate::world::World;
-use crate::texture::Texture;
+use crate::world::world::World;
+use crate::world::texture::Texture;
+use std::{thread, time};
+use std::thread::JoinHandle;
 
 
-pub struct MainApp<'c, L: Layout> {
+pub struct MainApp<L: Layout> {
     device: Arc<Device>,
     queue: Arc<Queue>,
 
@@ -37,10 +39,10 @@ pub struct MainApp<'c, L: Layout> {
     pub ui: App<L>,
     ui_gp: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
 
-    pub world: World<'c>,
+    pub world: World,
 }
 
-impl<'c> MainApp<'c, lyt::StackLayout> {
+impl MainApp<lyt::StackLayout> {
     pub fn new(device: Arc<Device>,
                queue: Arc<Queue>,
                surface: Arc<Surface<Window>>,
@@ -92,7 +94,7 @@ impl<'c> MainApp<'c, lyt::StackLayout> {
 
         let future = Some(world.bind_texture(future.unwrap()));
 
-        Self {
+        let mut app = Self {
             device: device.clone(),
             queue: queue.clone(),
 
@@ -108,7 +110,9 @@ impl<'c> MainApp<'c, lyt::StackLayout> {
             ui_gp: app_gp,
 
             world: world,
-        }
+        };
+
+        app
     }
 
     // updates the app; the app also should automatically renders the screen
@@ -117,8 +121,6 @@ impl<'c> MainApp<'c, lyt::StackLayout> {
 
         // cleans the previous buffer
         self.prev_frame.as_mut().unwrap().cleanup_finished();
-
-        self.world.update();
 
         if self.recreate {
             println!("Frame recreated: {:?}", dimensions);
@@ -148,9 +150,16 @@ impl<'c> MainApp<'c, lyt::StackLayout> {
 
         if suboptimal { self.recreate = true; }
 
-        let world_cp = self.world.render(self.device.clone(), self.queue.clone(),
-                                         self.renderpass.clone(), self.framebuffer[image_num].clone(),
-                                         dimensions, self.recreate);
+        self.world.update(dimensions, self.renderpass.clone(),
+                          self.framebuffer[image_num].clone(), self.recreate
+        );
+
+        let world_cp = self.world.render(
+            self.device.clone(),
+            self.queue.clone(),
+            self.framebuffer[image_num].clone(),
+            dimensions,
+        );
 
         let ui_cmd_buf = self.ui.render_cp(self.device.clone(), self.queue.clone(),
                                            self.ui_gp.clone(), self.framebuffer[image_num].clone(), );

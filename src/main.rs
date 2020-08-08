@@ -14,19 +14,15 @@ use winit::dpi::{Position, PhysicalPosition};
 
 use crate::app::MainApp;
 use crate::datatype::CamDirection;
+use winit::event::MouseButton;
 
 mod ui;
-mod mesh;
-mod terrain;
-mod player;
-mod block;
+mod world;
+mod event;
 
 mod app;
 mod datatype;
-mod world;
-mod shader;
-mod chunk;
-mod texture;
+mod math;
 
 /*
 Possible Names for Games:
@@ -42,6 +38,23 @@ Perpetual Matrices of Geometry (PMG) <-----
 Subtitle: The Odyssey
 
 Borealis: The Perpetual Terrain of Blocks (BPTB) <-----
+
+Matrixism
+Matrixation
+Matricism
+Matrication
+Vectrix: Vector-Matrix
+Vertrix: Vertex-Matrix
+Matriksation
+Procedural Matrix
+ProcMatrix
+Procedural Block
+Laggy Matrix
+Laggy Cube
+Little Matrix
+
+Matrixagon <------ DEFN. YES
+Shortened as: Mtxg or MG
  */
 
 fn main() {
@@ -78,13 +91,15 @@ fn main() {
     // let mut textr: Texture<'static> = Texture::new(queue.clone());
     let mut app = MainApp::new(
         device.clone(), queue.clone(),
-        surface.clone(), physical, dimensions);
+        surface.clone(), physical, dimensions
+    );
 
     use winit::event_loop::ControlFlow;
     use winit::event::{Event, WindowEvent, DeviceEvent, VirtualKeyCode as K, KeyboardInput, ElementState};
 
     let mut pressed: Vec<K> = Vec::new();
     let mut cmd_mode = false;
+    let mut focused = true;
 
     event_loop.run( move |event, _, control_flow| {
         dimensions = surface.window().inner_size().into();
@@ -123,21 +138,34 @@ fn main() {
                             }
                         }
                     },
+                    WindowEvent::MouseInput { state, button, .. } => {
+                        if !cmd_mode {
+                            // TODO: will do again after the "do_block" event moved
+                            // if button == MouseButton::Left && state == ElementState::Pressed {
+                            //     app.world.do_block(true, false);
+                            // } else if button == MouseButton::Right && state == ElementState::Pressed {
+                            //     app.world.do_block(false, true);
+                            // }
+                        }
+                    },
+                    WindowEvent::Focused( win_focused ) => {
+                        focused = win_focused;
+                    },
                     _ => {}
                 }
             },
             Event::DeviceEvent { event: DeviceEvent::MouseMotion { delta }, .. } => {
-                if !cmd_mode {
+                if !cmd_mode && focused {
                     // println!("ROT X: {}, Y: {}", delta.1, delta.0);
 
                     app.world.player.camera.rotate(delta.1 as f32, delta.0 as f32, 0.0);
 
-                    // app.world.player.camera.rotate(delta.1 as f32, 0.0, 0.0);
-                    // app.world.player.camera.rotate(0.0, delta.0 as f32, 0.0);
+                    app.world.player.camera.rotate(delta.1 as f32, 0.0, 0.0);
+                    app.world.player.camera.rotate(0.0, delta.0 as f32, 0.0);
 
                     surface.window().set_cursor_position(
                         Position::Physical(PhysicalPosition{ x: dimensions.width as i32/2, y: dimensions.height as i32/2 })
-                    ).unwrap();
+                    );
                 }
             },
             // this calls last after all the event finishes emitting
