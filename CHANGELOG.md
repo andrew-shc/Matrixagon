@@ -3,18 +3,22 @@
 * Entities addition
 * Block Entities?
     * Maybe revamp to an ECS system?
-* Fully-fledged world.weather system
+* Fully-fledged weather system
 * A stack machine to hold the app state (e.g. main menus, options, ...)
 * Add update queues to synchronize the game
 
 ### Unreleased (Generally ordered from top to bottom)
+* [ ] Add a world event system
+* [ ] Added block placing and breaking
+* [ ] Create an external World Command DSL API interface
+* [ ] Create a text file reader to fetch commands into the interface
+
 * Faster chunk loading on the chunk thread
-* A seperate external command API to edit the world
 * Render Optimization:
     * Texture mipmapping (claims it will be supported soon for `from_iter` method)
     * Frustum Culling
     * Occlusion Culling
-        * Remove all the world.block sides a world.player won't see from the world.player's position
+        * Remove all the world.block sides player won't see from the player's position
     * Improve Block Handling
 * Wireframe rendering debugging option
 * Move the rendering of the world always to the origin of the render space
@@ -24,6 +28,20 @@
 * Add a terrain generation
 * Internal:
     * Add a global shared reference on block registry (Arc<T>)
+    
+### v0.1.2 [Aug 19, 2020]
+* [x] __Fixed__: Graphic pipeline does not update to a new size of the window in a reasonable amount of time; and now will be immediately update
+* [X] Significantly improved chunk loading/generation
+* [X] Added basic noise terrain height map
+* [x] Re-tuned the player movement speed
+    * [x] Added new [CTRL] key-binding to increase player movement
+    * NOTE: The movement increase will be significantly faster once the chunk loading is optimized and refined more
+* Internal:
+    * Codebase cleanup and reorganization
+    * Minimized warnings
+    * Changed struct/method types
+    * Improved buffer data spamming handling over multithreading MPSC channels
+    * [X] Added block registry for more globalize/easier way to obtain block data
 
 ### v0.1.1 [Aug 8, 2020]
 * Render Optimization:
@@ -49,7 +67,7 @@
 
 ### v0.0.2 [June 20, 2020]
 * Partially finished refactoring
-* WARNING: weird world.player translation
+* WARNING: weird player translation
 * NOTE: just want to pushed this out b/c its just taking longer than expected
 
 ### v0.0.1 [June 4, 2020]

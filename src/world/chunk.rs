@@ -1,8 +1,7 @@
-use super::block::Block;
-use super::world::ChunkID;
+use crate::world::block::Block;
+use crate::world::ChunkID;
 use crate::datatype::{Position, LocalBU, ChunkUnit, BlockUnit};
 
-use std::ops::Rem;
 
 pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_BLOCKS: usize = CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE;  // blocks in a chunk
@@ -31,8 +30,9 @@ impl Chunk {
         (*self.block_data)[remove_block_pos.into_vec_pos()] = block_to_be_replaced;
     }
 
+    #[inline(always)]
     pub fn blocks(&self, x: BlockUnit, y: BlockUnit, z: BlockUnit) -> &Block {
-        &self.block_data[(x.0 as usize%CHUNK_SIZE)*CHUNK_SIZE*CHUNK_SIZE+(y.0 as usize%CHUNK_SIZE)*CHUNK_SIZE+(z.0 as usize%CHUNK_SIZE)]
+        &self.block_data[(usize::from(x)%CHUNK_SIZE)*CHUNK_SIZE*CHUNK_SIZE+(usize::from(y)%CHUNK_SIZE)*CHUNK_SIZE+(usize::from(z)%CHUNK_SIZE)]
     }
 }
 
@@ -42,36 +42,4 @@ pub enum ChunkError {
     // related to Chunk ID's
     DuplicateID,  // if there were multiple same ID
     DuplicateChunkPos,  // cannot generate chunk ID: duplicate chunk position
-}
-
-
-// TODO: Both New_ChunkUpdate enum and bitflag are discarded in favor of a new event system
-
-// TODO: just use enums
-pub enum New_ChunkUpdate {
-    // chunk load (world.player moving around loading new chunks to be loaded)
-    ChunkLoad,
-    // world.block update (world.block manipulation, world.player breaking/placing blocks, etc.)
-    // requires the chunk location to reload the whole chunk TODO
-    BlockUpdate,
-    // lighting update (light level, placed a illuminate blocks, etc.)
-    LightingUpdate,
-
-    // TODO: Theoretical implementation
-    RedstoneUpdate,
-}
-
-bitflags! {
-    #[derive(Default)]
-    pub struct ChunkUpdate: u32 {
-        // chunk load (world.player moving around loading new chunks to be loaded)
-        const ChunkLoad = 0b00000001;
-        // world.block update (world.block manipulation, world.player breaking/placing blocks, etc.)
-        const BlockUpdate = 0b00000010;
-        // lighting update (light level, placed a illuminate blocks, etc.)
-        const LightingUpdate = 0b00000100;
-
-        // TODO: Theoreticl implementation
-        const RedstoneUpdate = 0b10000000;
-    }
 }

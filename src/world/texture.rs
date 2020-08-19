@@ -13,6 +13,7 @@ use png;
 
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+// TextureID: Numerical ID, Name Tag
 pub struct TextureID(pub u32, pub &'static str);
 
 

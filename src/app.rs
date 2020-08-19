@@ -11,17 +11,14 @@ use vulkano::pipeline::GraphicsPipelineAbstract;
 
 use winit::window::Window;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::datatype as dt;
 use crate::ui;
 use crate::ui::{App, Layout};
 use crate::ui::layout as lyt;
 use crate::datatype::Dimension;
-use crate::world::world::World;
-use crate::world::texture::Texture;
-use std::{thread, time};
-use std::thread::JoinHandle;
+use crate::world::World;
 
 
 pub struct MainApp<L: Layout> {
@@ -94,7 +91,7 @@ impl MainApp<lyt::StackLayout> {
 
         let future = Some(world.bind_texture(future.unwrap()));
 
-        let mut app = Self {
+        Self {
             device: device.clone(),
             queue: queue.clone(),
 
@@ -110,9 +107,7 @@ impl MainApp<lyt::StackLayout> {
             ui_gp: app_gp,
 
             world: world,
-        };
-
-        app
+        }
     }
 
     // updates the app; the app also should automatically renders the screen

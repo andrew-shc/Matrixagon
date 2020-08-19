@@ -1,11 +1,12 @@
-use crate::datatype::{Dimension, Position, Direction, ChunkUnit, BlockUnit};
-use super::{Mesh, MeshType};
-use crate::world::chunk::{Chunk, CHUNK_SIZE, ChunkUpdate};
+use crate::datatype::{Dimension, Position, ChunkUnit, BlockUnit};
+use crate::world::mesh::{Mesh, MeshType};
+use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::world::shader::{CubeVert, cube_vs, cube_fs};
-use crate::world::world::ChunkID;
+use crate::world::ChunkID;
 use crate::world::block::Block;
 use crate::world::texture::Texture;
 use crate::world::player::Player;
+use crate::event::types::ChunkEvents;
 
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::framebuffer::{Subpass, RenderPassAbstract};
@@ -14,7 +15,7 @@ use vulkano::pipeline::{GraphicsPipelineAbstract, GraphicsPipeline};
 use vulkano::command_buffer::DynamicState;
 use vulkano::buffer::{CpuAccessibleBuffer, BufferUsage, CpuBufferPool};
 use vulkano::sampler::{Sampler, SamplerAddressMode, Filter, MipmapMode};
-use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, PersistentDescriptorSetBuilderArray};
+use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet};
 use vulkano::descriptor::DescriptorSet;
 use vulkano::buffer::cpu_pool::CpuBufferPoolSubbuffer;
 use vulkano::memory::pool::{StdMemoryPool, PotentialDedicatedAllocation, StdMemoryPoolAlloc};
@@ -25,11 +26,8 @@ use rayon::prelude::*;
 
 use std::sync::Arc;
 use std::iter;
-use std::rc::Rc;
 use std::marker::PhantomData;
-use std::any::Any;
-use std::fmt::Debug;
-use crate::event::types::ChunkEvents;
+use crate::world::chunk_threadpool::{ChunkThreadPool, ThreadPoolOutput};
 
 
 const CUBE_FACES: u32 = 6;  // 6 faces in a cube (duh)
@@ -131,6 +129,234 @@ impl<'c> Cube<'c> {
             .build(device.clone()).unwrap()
         )
     }
+
+    fn mesh_data(chunk_list: Vec<(ChunkID, bool, Vec<CubeVert>, Vec<u32>)>, chunks: Arc<Vec<Chunk>>, chunk: Chunk) -> ThreadPoolOutput {
+        let find_chunk = |cid: ChunkID| -> Option<&Chunk> {
+            // don't parallelize this iterator: as this closure gets executed few thousands time,
+            // the overhead of even threadpool can largely affect negatively
+            if let Some(ind) = chunks.iter().position(|x| x.id == cid) {
+                Some(&chunks[ind])
+            } else {
+                None
+            }
+        };
+
+        let start = Position::new(
+            chunk.position.x.into_block(),
+            chunk.position.y.into_block(),
+            chunk.position.z.into_block(),
+        );
+
+        let end = Position::new(
+            (chunk.position.x + ChunkUnit(1.0)).into_block() - BlockUnit(1.0),
+            (chunk.position.y + ChunkUnit(1.0)).into_block() - BlockUnit(1.0),
+            (chunk.position.z + ChunkUnit(1.0)).into_block() - BlockUnit(1.0),
+        );
+
+        // println!("Chunk Start: {:?}", start);
+        // println!("Chunk End: {:?}", end);
+
+        // Chunk Border Culling:
+        // first locate any adjacent chunks in the world.mesh
+        // then locate the world.block data to find any transparent blocks
+        //  ^- IF NOT: do not add the vertices and indices
+        //  ^- ELSE: add the vertices and indices to the vector
+        //  ^- CASE: when there are no adjacent chunks: do not add the vertices and indices
+
+        // listing out all the theoretical adjacent chunks this Chunk has
+        let adjc_chunks: [Position<ChunkUnit>; 6] = [
+            Position::new(chunk.position.x+ChunkUnit(1.0), chunk.position.y  , chunk.position.z  ),  // LEFT
+            Position::new(chunk.position.x-ChunkUnit(1.0), chunk.position.y  , chunk.position.z  ),  // RIGHT
+            Position::new(chunk.position.x  , chunk.position.y+ChunkUnit(1.0), chunk.position.z  ),  // UP
+            Position::new(chunk.position.x  , chunk.position.y-ChunkUnit(1.0), chunk.position.z  ),  // DOWN
+            Position::new(chunk.position.x  , chunk.position.y  , chunk.position.z+ChunkUnit(1.0)),  // BACK
+            Position::new(chunk.position.x  , chunk.position.y  , chunk.position.z-ChunkUnit(1.0)),  // FRONT
+        ];
+
+        // lists all the chunks that are adjacent to this Chunk
+        let merge_chunks = chunk_list.par_iter()
+            .filter(|c| {
+                if let Some(c) = &find_chunk(c.0) {
+                    adjc_chunks.contains(&c.position)
+                } else {
+                    false
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // println!("Merge Chunks: {:?}", merge_chunks.iter().map(|c| c.0).collect::<Vec<_>>());
+
+        let main_chunk = chunk.clone();
+
+        // the coordinates of get_chunk(); coords relative to the main Chunk
+        let get_chunk = |x, y, z| {
+            for (cid, _cull, _v, _i) in &merge_chunks {
+                if let Some(c_chunk) = &find_chunk(*cid) {
+                    let offset = Position::new(
+                        c_chunk.position.x - main_chunk.position.x,
+                        c_chunk.position.y - main_chunk.position.y,
+                        c_chunk.position.z - main_chunk.position.z,
+                    );
+
+                    if Position::new(x, y, z) == offset {
+                        return Some(c_chunk.clone());
+                    }
+                }
+            }
+            return None;
+        };
+
+        // println!("Current chunk position: {:?}", chunk.position);
+        // println!("Adjacent chunks found: {:?}", merge_chunks.iter().map(|x| &find_chunk(&x.0).unwrap().position).collect::<Vec<_>>());
+
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        // NOTE: FOR THE HECK SAKE, the bug was I have to change the u32 to i32 because of negative position. sigh.
+        for x in start.x.into()..=i32::from(end.x) {
+            let x = BlockUnit(x as f32);
+            for y in start.y.into()..=i32::from(end.y) {
+                let y = BlockUnit(y as f32);
+                for z in start.z.into()..=i32::from(end.z) {
+                    let z = BlockUnit(z as f32);
+                    let block: &Block = chunk.blocks(x, y, z);
+
+                    /*
+                        1 -- 3
+                        | \  |
+                        |  \ |
+                        0 -- 2
+                     */
+
+                    if let MeshType::Cube {top, bottom, left, right, front, back} = &block.mesh {
+                        let mut faces = 0;
+
+                        // if if (1st: checks chunk border) {2nd: checks for nearby transparent world.block across the chunk border} else {3rd: checks for nearby transparent world.block}
+                        if  if start.x == x {
+                            if let Some(c) = get_chunk(ChunkUnit(-1.0), ChunkUnit(0.0), ChunkUnit(0.0)) {
+                                c.blocks(BlockUnit(CHUNK_SIZE as f32-1.0), y, z).state.transparent && !block.state.transparent
+                            } else {
+                                false
+                            }
+                        } else {
+                            chunk.blocks(x.decr(), y, z).state.transparent && !block.state.transparent
+                        }
+                        {  // left face
+                            vertices.push(CubeVert { pos: [0.0+x.inner(),0.0+y.inner(),1.0+z.inner()], txtr: 1 | (left.0 << 16)});
+                            vertices.push(CubeVert { pos: [0.0+x.inner(),1.0+y.inner(),1.0+z.inner()], txtr: 0 | (left.0 << 16)});
+                            vertices.push(CubeVert { pos: [0.0+x.inner(),1.0+y.inner(),0.0+z.inner()], txtr: 2 | (left.0 << 16)});
+                            vertices.push(CubeVert { pos: [0.0+x.inner(),0.0+y.inner(),0.0+z.inner()], txtr: 3 | (left.0 << 16)});
+                            faces += 1;
+                        }
+                        if if start.y == y {
+                            if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(-1.0), ChunkUnit(0.0)) {
+                                c.blocks(x, BlockUnit(CHUNK_SIZE as f32-1.0), z).state.transparent && !block.state.transparent
+                            } else {
+                                false
+                            }
+                        } else {
+                            chunk.blocks(x, y.decr(), z).state.transparent && !block.state.transparent
+                        }
+                        {  // bottom face
+                            vertices.push(CubeVert { pos: [0.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 0 | (bottom.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 2 | (bottom.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 1.0+z.inner()], txtr: 3 | (bottom.0 << 16)});
+                            vertices.push(CubeVert { pos: [0.0+x.inner(), 0.0+y.inner(), 1.0+z.inner()], txtr: 1 | (bottom.0 << 16)});
+                            faces += 1;
+                        }
+                        if if start.z == z {
+                            if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(0.0), ChunkUnit(-1.0)) {
+                                c.blocks(x, y, BlockUnit(CHUNK_SIZE as f32-1.0)).state.transparent && !block.state.transparent
+                            } else {
+                                false
+                            }
+                        } else {
+                            chunk.blocks(x, y, z.decr()).state.transparent && !block.state.transparent
+                        }
+                        {  // front face
+                            vertices.push(CubeVert { pos: [0.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 0 | (front.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 2 | (front.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 3 | (front.0 << 16)});
+                            vertices.push(CubeVert { pos: [0.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 1 | (front.0 << 16)});
+                            faces += 1;
+                        }
+                        if if end.x == x {
+                            if let Some(c) = get_chunk(ChunkUnit(1.0), ChunkUnit(0.0), ChunkUnit(0.0)) {
+                                c.blocks(BlockUnit(0.0), y, z).state.transparent && !block.state.transparent
+                            } else {
+                                false
+                            }
+                        } else {
+                            chunk.blocks(x.incr(), y, z).state.transparent && !block.state.transparent
+                        }
+                        {  // right face
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 3 | (right.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 2 | (right.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 1.0+z.inner()], txtr: 0 | (right.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 1.0+z.inner()], txtr: 1 | (right.0 << 16)});
+                            faces += 1;
+                        }
+                        if if end.y == y {
+                            if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(1.0), ChunkUnit(0.0)) {
+                                c.blocks(x, BlockUnit(0.0), z).state.transparent && !block.state.transparent
+                            } else {
+                                false
+                            }
+                        } else {
+                            chunk.blocks(x, y.incr(), z).state.transparent && !block.state.transparent
+                        }
+                        {  // top face
+                            vertices.push(CubeVert { pos: [0.0+x.inner(), 1.0+y.inner(), 1.0+z.inner()], txtr: 0 | (top.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 1.0+z.inner()], txtr: 1 | (top.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 3 | (top.0 << 16)});
+                            vertices.push(CubeVert { pos: [0.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 2 | (top.0 << 16)});
+                            faces += 1;
+                        }
+                        if if end.z == z {
+                            if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(0.0), ChunkUnit(1.0)) {
+                                c.blocks(x, y, BlockUnit(0.0)).state.transparent && !block.state.transparent
+                            } else {
+                                false
+                            }
+                        } else {
+                            chunk.blocks(x, y, z.incr()).state.transparent && !block.state.transparent
+                        }
+                        {  // back face
+                            vertices.push(CubeVert { pos: [0.0+x.inner(),0.0+y.inner(),1.0+z.inner()], txtr: 3 | (back.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(),0.0+y.inner(),1.0+z.inner()], txtr: 1 | (back.0 << 16)});
+                            vertices.push(CubeVert { pos: [1.0+x.inner(),1.0+y.inner(),1.0+z.inner()], txtr: 0 | (back.0 << 16)});
+                            vertices.push(CubeVert { pos: [0.0+x.inner(),1.0+y.inner(),1.0+z.inner()], txtr: 2 | (back.0 << 16)});
+                            faces += 1;
+                        }
+
+                        if indices.is_empty() {
+                            if faces > 0 {
+                                indices.append(
+                                    &mut vec![
+                                        0, 1, 2,
+                                        0, 2, 3,
+                                    ]
+                                );
+                                faces -= 1;
+                            }
+                        }
+
+                        for _ in 0..faces {
+                            let ofs = *indices.last().unwrap() as u32+1;  // offset
+                            indices.append(
+                                &mut vec![
+                                    0+ofs, 1+ofs, 2+ofs,  // triangle 1
+                                    0+ofs, 2+ofs, 3+ofs,  // triangle 2
+                                ]
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        (Box::new(vertices), Box::new(indices))
+    }
 }
 
 impl<'c> Mesh for Cube<'c> {
@@ -144,232 +370,57 @@ impl<'c> Mesh for Cube<'c> {
         self.chunks.push((chunk_id, false, Vec::new(), Vec::new()));
     }
 
-    fn load_chunks(&mut self, chunks: &Vec<Chunk>) {
-        let chunk_list = self.chunks.clone();
+    fn load_chunks(&mut self, chunks: Vec<Chunk>, pool: &mut ChunkThreadPool) {
+        let mut chunk_cloned = self.chunks.clone();
+        let chunks = Arc::new(chunks);
 
-        let find_chunk = |cid: &ChunkID| {
-            if let Some(T) = chunks.iter().position(|x| x.id == *cid) {
-                Some(&chunks[chunks.iter().position(|x| x.id == *cid).unwrap()])
-            } else {
-                None
-            }
-        };
+        for (chunk_id, _cull, _vert, _indx) in chunk_cloned.iter_mut() {
+            // println!("Chunk loop");
+            // println!("Chunks Arc Ref: {}", Arc::strong_count(&chunks));
 
-        for (chunk_id, cull, vert, indx) in self.chunks.iter_mut() {
-            if let Some(chunk) = find_chunk(chunk_id) {
-                let start = Position::new(
-                    chunk.position.x.into_block(),
-                    chunk.position.y.into_block(),
-                    chunk.position.z.into_block(),
-                );
+            let cloned_chunks = chunks.clone();
 
-                let end = Position::new(
-                    (chunk.position.x + ChunkUnit(1.0)).into_block() - BlockUnit(1.0),
-                    (chunk.position.y + ChunkUnit(1.0)).into_block() - BlockUnit(1.0),
-                    (chunk.position.z + ChunkUnit(1.0)).into_block() - BlockUnit(1.0),
-                );
-
-                // println!("Chunk Start: {:?}", start);
-                // println!("Chunk End: {:?}", end);
-
-                let mut vertices = Vec::new();
-                let mut indices = Vec::new();
-
-                // Chunk Border Culling:
-                // first locate any adjacent chunks in the world.mesh
-                // then locate the world.block data to find any transparent blocks
-                //  ^- IF NOT: do not add the vertices and indices
-                //  ^- ELSE: add the vertices and indices to the vector
-                //  ^- CASE: when there are no adjacent chunks: do not add the vertices and indices
-
-                // listing out all the theoretical adjacent chunks this Chunk has
-                let adjc_chunks: [Position<ChunkUnit>; 6] = [
-                    Position::new(chunk.position.x+ChunkUnit(1.0), chunk.position.y  , chunk.position.z  ),  // LEFT
-                    Position::new(chunk.position.x-ChunkUnit(1.0), chunk.position.y  , chunk.position.z  ),  // RIGHT
-                    Position::new(chunk.position.x  , chunk.position.y+ChunkUnit(1.0), chunk.position.z  ),  // UP
-                    Position::new(chunk.position.x  , chunk.position.y-ChunkUnit(1.0), chunk.position.z  ),  // DOWN
-                    Position::new(chunk.position.x  , chunk.position.y  , chunk.position.z+ChunkUnit(1.0)),  // BACK
-                    Position::new(chunk.position.x  , chunk.position.y  , chunk.position.z-ChunkUnit(1.0)),  // FRONT
-                ];
-
-                // lists all the chunks that are adjacent to this Chunk
-                let merge_chunks = chunk_list.iter()
-                    .filter(|c| {
-                        if let Some(c) = &find_chunk(&c.0) {
-                            adjc_chunks.contains(&c.position)
-                        } else {
-                            false
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                // println!("Merge Chunks: {:?}", merge_chunks.iter().map(|c| c.0).collect::<Vec<_>>());
-
-                let main_chunk = chunk.clone();
-
-                // the coordinates of get_chunk(); coords relative to the main Chunk
-                let get_chunk = |x, y, z| {
-                    for (cid, _cull, _v, _i) in merge_chunks.iter() {
-                        if let Some(c_chunk) = &find_chunk(cid) {
-                            let offset = Position::new(
-                                c_chunk.position.x - main_chunk.position.x,
-                                c_chunk.position.y - main_chunk.position.y,
-                                c_chunk.position.z - main_chunk.position.z,
-                            );
-
-                            if Position::new(x, y, z) == offset {
-                                return Some(c_chunk.clone());
-                            }
-                        }
-                    }
-                    return None;
-                };
-
-                // println!("Current chunk position: {:?}", chunk.position);
-                // println!("Adjacent chunks found: {:?}", merge_chunks.iter().map(|x| &find_chunk(&x.0).unwrap().position).collect::<Vec<_>>());
-
-                // NOTE: FOR THE HECK SAKE, I have to change the u32 to i32 because of negative position. sigh.
-                for x in start.x.0 as i32..=end.x.0 as i32 {
-                    let x = BlockUnit(x as f32);
-                    for y in start.y.0 as i32..=end.y.0 as i32 {
-                        let y = BlockUnit(y as f32);
-                        for z in start.z.0 as i32..=end.z.0 as i32 {
-                            let z = BlockUnit(z as f32);
-                            let block: &Block = chunk.blocks(x, y, z);
-
-                            if let MeshType::Cube {top, bottom, left, right, front, back} = &block.mesh {
-                                let mut faces = 0;
-
-                                // if if (1st: checks chunk border) {2nd: checks for nearby transparent world.block across the chunk border} else {3rd: checks for nearby transparent world.block}
-                                if  if start.x == x {
-                                    if let Some(c) = get_chunk(ChunkUnit(-1.0), ChunkUnit(0.0), ChunkUnit(0.0)) {
-                                        c.blocks(BlockUnit(CHUNK_SIZE as f32-1.0), y, z).state.transparent && !block.state.transparent
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    chunk.blocks(x.decr(), y, z).state.transparent && !block.state.transparent
-                                }
-                                {  // left face
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0,0.0+y.0,1.0+z.0], ind: left.0, txtr: [0, 1]});
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0,1.0+y.0,1.0+z.0], ind: left.0, txtr: [0, 0]});
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0,1.0+y.0,0.0+z.0], ind: left.0, txtr: [1, 0]});
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0,0.0+y.0,0.0+z.0], ind: left.0, txtr: [1, 1]});
-                                    faces += 1;
-                                }
-                                if if start.y == y {
-                                    if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(-1.0), ChunkUnit(0.0)) {
-                                        c.blocks(x, BlockUnit(CHUNK_SIZE as f32-1.0), z).state.transparent && !block.state.transparent
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    chunk.blocks(x, y.decr(), z).state.transparent && !block.state.transparent
-                                }
-                                {  // bottom face
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0, 0.0+y.0, 0.0+z.0], ind: bottom.0, txtr: [0, 0]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 0.0+y.0, 0.0+z.0], ind: bottom.0, txtr: [1, 0]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 0.0+y.0, 1.0+z.0], ind: bottom.0, txtr: [1, 1]});
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0, 0.0+y.0, 1.0+z.0], ind: bottom.0, txtr: [0, 1]});
-                                    faces += 1;
-                                }
-                                if if start.z == z {
-                                    if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(0.0), ChunkUnit(-1.0)) {
-                                        c.blocks(x, y, BlockUnit(CHUNK_SIZE as f32-1.0)).state.transparent && !block.state.transparent
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    chunk.blocks(x, y, z.decr()).state.transparent && !block.state.transparent
-                                }
-                                {  // front face
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0, 1.0+y.0, 0.0+z.0], ind: front.0, txtr: [0, 0]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 1.0+y.0, 0.0+z.0], ind: front.0, txtr: [1, 0]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 0.0+y.0, 0.0+z.0], ind: front.0, txtr: [1, 1]});
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0, 0.0+y.0, 0.0+z.0], ind: front.0, txtr: [0, 1]});
-                                    faces += 1;
-                                }
-                                if if end.x == x {
-                                    if let Some(c) = get_chunk(ChunkUnit(1.0), ChunkUnit(0.0), ChunkUnit(0.0)) {
-                                        c.blocks(BlockUnit(0.0), y, z).state.transparent && !block.state.transparent
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    chunk.blocks(x.incr(), y, z).state.transparent && !block.state.transparent
-                                }
-                                {  // right face
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 0.0+y.0, 0.0+z.0], ind: right.0, txtr: [1, 1]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 1.0+y.0, 0.0+z.0], ind: right.0, txtr: [1, 0]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 1.0+y.0, 1.0+z.0], ind: right.0, txtr: [0, 0]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 0.0+y.0, 1.0+z.0], ind: right.0, txtr: [0, 1]});
-                                    faces += 1;
-                                }
-                                if if end.y == y {
-                                    if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(1.0), ChunkUnit(0.0)) {
-                                        c.blocks(x, BlockUnit(0.0), z).state.transparent && !block.state.transparent
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    chunk.blocks(x, y.incr(), z).state.transparent && !block.state.transparent
-                                }
-                                {  // top face
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0, 1.0+y.0, 1.0+z.0], ind: top.0, txtr: [0, 0]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 1.0+y.0, 1.0+z.0], ind: top.0, txtr: [0, 1]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0, 1.0+y.0, 0.0+z.0], ind: top.0, txtr: [1, 1]});
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0, 1.0+y.0, 0.0+z.0], ind: top.0, txtr: [1, 0]});
-                                    faces += 1;
-                                }
-                                if if end.z == z {
-                                    if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(0.0), ChunkUnit(1.0)) {
-                                        c.blocks(x, y, BlockUnit(0.0)).state.transparent && !block.state.transparent
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    chunk.blocks(x, y, z.incr()).state.transparent && !block.state.transparent
-                                }
-                                {  // back face
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0,0.0+y.0,1.0+z.0], ind: back.0, txtr: [1, 1]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0,0.0+y.0,1.0+z.0], ind: back.0, txtr: [0, 1]});
-                                    vertices.push(Self::Vertex { pos: [1.0+x.0,1.0+y.0,1.0+z.0], ind: back.0, txtr: [0, 0]});
-                                    vertices.push(Self::Vertex { pos: [0.0+x.0,1.0+y.0,1.0+z.0], ind: back.0, txtr: [1, 0]});
-                                    faces += 1;
-                                }
-
-                                for _ in 0..faces {
-                                    if indices.is_empty() {
-                                        indices.append(
-                                            &mut vec![
-                                                0, 1, 2,
-                                                0, 2, 3,
-                                            ]
-                                        )
-                                    } else {
-                                        let ofs = *indices.last().unwrap() as u32+1;  // offset
-                                        indices.append(
-                                            &mut vec![
-                                                0+ofs, 1+ofs, 2+ofs,  // triangle 1
-                                                0+ofs, 2+ofs, 3+ofs,  // triangle 2
-                                            ]
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+            let find_chunk = |cid: ChunkID| -> Option<Chunk> {
+                if let Some(T) = cloned_chunks.par_iter().position_first(|x| x.id == cid) {
+                    Some(cloned_chunks[cloned_chunks.par_iter().position_first(|x| x.id == cid).unwrap()].clone())
+                } else {
+                    None
                 }
+            };
 
-                // just in case if there are any vertices/indices data this chunk has previously
-                // which can cause some rendering issues
-                vert.clear();
-                indx.clear();
+            if let Some(chunk) = find_chunk(*chunk_id) {
+                let chunk_list = self.chunks.clone();
+                let chunks = chunks.clone();
 
-                vert.append(&mut vertices);
-                indx.append(&mut indices);
+                println!("Adding a chunk thread");
+                let chunk = chunk.clone();
+                pool.add_work( ( chunk_id.clone(), Box::new(move || {
+                    Self::mesh_data(chunk_list, chunks, chunk)
+                })));  // end for adding work to the thread pool
             }
         }
+
+        let output = pool.join();
+
+        for (id, (mut vert, mut indx)) in output {
+            // as long the self.chunks doesn't get changed in between, it should never panic
+            let ind = self.chunks.iter().position(|c| c.0 == id).unwrap();
+
+            let mut vertices: &mut Vec<CubeVert> = (*vert).downcast_mut().unwrap();
+            let mut indices: &mut Vec<u32> = (*indx).downcast_mut().unwrap();
+
+            // .2: vertex dt of that chunk; .3 index dt of that chunk
+
+            // just in case if there are any vertices/indices data this chunk has previously
+            // which can cause some rendering issues
+            self.chunks[ind].2.clear();
+            self.chunks[ind].3.clear();
+
+            self.chunks[ind].2.append(&mut vertices);
+            self.chunks[ind].3.append(&mut indices);
+        }
+
+
     }
 
     // TODO: Will probably be removed in future
@@ -423,7 +474,7 @@ impl<'c> Mesh for Cube<'c> {
             Self::PushConstants,   // push-down constants
     ) {
         if !chunk_event.is_empty() {
-            println!("Mesh Rendering: Chunk Status ({:?})", chunk_event);
+            // println!("Mesh Rendering: Chunk Status ({:?})", chunk_event);
         }
 
         if rerender {
@@ -464,11 +515,11 @@ impl<'c> Mesh for Cube<'c> {
                 }
             }
 
-            println!("Vertex length: {:?}", self.vertices.len());
-            println!("Index length: {:?}", self.indices.len());
+            // println!("Vertex length: {:?}", self.vertices.len());
+            // println!("Index length: {:?}", self.indices.len());
         }
 
-        // TODO: Automaticaly add texture buffers to sets
+        // TODO: Dynamically add new texture buffers
         let layout0 = self.grph_pipe.descriptor_set_layout(0).unwrap();
         let set0 = Arc::new(PersistentDescriptorSet::start(layout0.clone())
             .enter_array().unwrap()
@@ -499,7 +550,7 @@ impl<'c> Mesh for Cube<'c> {
                 device.clone(), BufferUsage::index_buffer(),
                 false, self.indices.clone().into_iter()
             ).unwrap(),
-            vec![set0, set1],  // TODO: somehow easily manage the shared buffers on the mesh
+            vec![set0, set1],
             (),
         )
     }

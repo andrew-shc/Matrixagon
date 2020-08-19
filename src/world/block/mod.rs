@@ -2,6 +2,7 @@ use super::mesh::MeshType;
 use super::block::state::BlockState;
 
 pub mod state;
+pub mod registry;
 
 
 #[derive(Copy, Clone, Debug, PartialEq)]

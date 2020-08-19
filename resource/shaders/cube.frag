@@ -1,6 +1,6 @@
 #version 450
 
-layout(location = 0) flat in int pass_ind;
+layout(location = 0) flat in uint pass_ind;
 layout(location = 1) in vec2 pass_txtr;
 
 layout(location = 0) out vec4 f_color;
@@ -12,5 +12,17 @@ layout(location = 0) out vec4 f_color;
 layout(set = 0, binding = 0) uniform sampler2D txtr[6];  // Maximum texture length of 64
 
 void main() {
-    f_color = texture(txtr[pass_ind], pass_txtr);
+    /*
+    0 - 0b00
+    1 - 0b01
+    2 - 0b10
+    3 - 0b11
+
+    1 -- 3
+    | \  |
+    |  \ |
+    0 -- 2
+    */
+
+    f_color = texture(txtr[pass_ind >> 16], pass_txtr);
 }

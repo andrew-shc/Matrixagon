@@ -1,7 +1,8 @@
-use std::collections::VecDeque;
-use crate::event::types::ChunkEvents;
+use std::collections::vec_deque::VecDeque;
+
 
 pub mod types;
+
 
 #[derive(Clone)]
 pub struct EventQueue<T: EventType<T> + Copy + Clone> {
@@ -41,6 +42,11 @@ impl<T: EventType<T> + Copy + Clone> EventQueue<T> {
 
     pub fn flush_events(&mut self) {
         self.queue.clear();
+    }
+
+    // counts how many events are still awaiting to be consumed
+    pub fn event_count(&self) -> usize {
+        self.queue.len()
     }
 }
 

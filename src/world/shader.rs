@@ -4,6 +4,9 @@ pub trait IndexType {}
 impl IndexType for u32 {}  // DEPRECATED: will be removing the index type in favor of vulkano's index
 
 
+// using less # of bytes per vertices generally yields higher performance because
+// the data can be sent with less clock cycles
+
 #[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct UIVert {
     pub pos: [f32; 2],  // 2D position
@@ -13,12 +16,12 @@ pub struct UIVert {
 #[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct CubeVert {
     pub pos: [f32; 3],  // 3D position
-    pub ind: u32,  // Texture array index
-    pub txtr: [u32; 2],  // TODO: try one u32 (4 byte) to hole state: 1 2 3 4
+    pub txtr: u32,  // texture info: 0b00000000_00000000_00000000_00000000
+    //                 texture arr ind (32-16) | other unplanned (15-3) | texture loc (2-0)
 }
 
 vulkano::impl_vertex!(UIVert, pos, col);
-vulkano::impl_vertex!(CubeVert, pos, ind, txtr);
+vulkano::impl_vertex!(CubeVert, pos, txtr);
 
 impl VertexType for UIVert {}
 impl VertexType for CubeVert {}

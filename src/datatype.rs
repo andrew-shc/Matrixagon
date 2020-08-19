@@ -1,7 +1,6 @@
-use winit::dpi::PhysicalSize;
+use crate::world::chunk::CHUNK_SIZE;
 
-use std::ops::{Div, Mul, Add, Sub, Neg};
-use std::fmt::Debug;
+use winit::dpi::PhysicalSize;
 
 use num_traits::float::Float;
 
@@ -9,8 +8,10 @@ use na::{
     Matrix4,
     Point3
 };
-use vulkano::memory::pool::AllocLayout::Linear;
-use crate::world::chunk::CHUNK_SIZE;
+
+use std::ops::{Div, Mul, Add, Sub, Neg};
+use std::fmt::Debug;
+
 
 // TODO: in future, there will be a custom float and integer type or uses another library's numeric types
 // an empty trait for all standard float
@@ -41,13 +42,13 @@ pub enum Direction {
 }
 
 
-#[derive(Debug, Copy, Clone)]
-pub struct Dimension<T: Copy + Div + Mul> {
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Dimension<T: Copy + Div + Mul + PartialEq> {
     pub height: T,
     pub width: T,
 }
 
-impl<T: Copy + Div + Mul + Into<f64>> Dimension<T> {
+impl<T: Copy + Div + Mul + PartialEq + Into<f64>> Dimension<T> {
     pub fn new(height: T, width: T) -> Self {
         Self {
             height,
@@ -66,7 +67,7 @@ impl<T: Copy + Div + Mul + Into<f64>> Dimension<T> {
     }
 }
 
-impl<T: Copy + Div + Mul> From<PhysicalSize<T>> for Dimension<T> {
+impl<T: Copy + Div + Mul + PartialEq> From<PhysicalSize<T>> for Dimension<T> {
     fn from(item: PhysicalSize<T>) -> Self {
         Self {
             height: item.height,
@@ -75,7 +76,7 @@ impl<T: Copy + Div + Mul> From<PhysicalSize<T>> for Dimension<T> {
     }
 }
 
-impl<T: Copy + Div + Mul> From<Dimension<T>> for [T; 2] {
+impl<T: Copy + Div + Mul + PartialEq> From<Dimension<T>> for [T; 2] {
     fn from(item: Dimension<T>) -> Self {
         [item.width, item.height]
     }
@@ -148,7 +149,7 @@ impl Position<LocalBU> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Rotation<T: Copy + Debug + PartialEq + Float> {
     pub x: T,
     pub y: T,
@@ -232,10 +233,10 @@ impl Line<f32> {
 
     // this is an associate function so the intersect3d can swizzle the components of line a (self)
     fn inner_intersect2d(a: Line<f32>, b: Line<f32>) -> LineIntersect<f32> {
-        let ua_n = ((b.b.x-b.a.x)*(a.a.y-b.a.y) - (b.b.y-b.a.y)*(a.a.x-b.a.x));
-        let ua_d = ((b.b.y-b.a.y)*(a.b.x-a.a.x) - (b.b.x-b.a.x)*(a.b.y-a.a.y));
-        let ub_n = ((a.b.x-a.a.x)*(a.a.y-b.a.y) - (a.b.y-a.a.y)*(a.a.x-b.a.x));
-        let ub_d = ((b.b.y-b.a.y)*(a.b.x-a.a.x) - (b.b.x-b.a.x)*(a.b.y-a.a.y));
+        let ua_n = (b.b.x-b.a.x)*(a.a.y-b.a.y) - (b.b.y-b.a.y)*(a.a.x-b.a.x);
+        let ua_d = (b.b.y-b.a.y)*(a.b.x-a.a.x) - (b.b.x-b.a.x)*(a.b.y-a.a.y);
+        let ub_n = (a.b.x-a.a.x)*(a.a.y-b.a.y) - (a.b.y-a.a.y)*(a.a.x-b.a.x);
+        let ub_d = (b.b.y-b.a.y)*(a.b.x-a.a.x) - (b.b.x-b.a.x)*(a.b.y-a.a.y);
 
         if (0.0 < ua_n/ua_d && ua_n/ua_d < 1.0) && (0.0 < ub_n/ub_d && ub_n/ub_d < 1.0) {
             let x = a.a.x + (ua_n/ua_d)*(a.b.x-a.a.x);
@@ -292,9 +293,9 @@ pub enum DomainRestriction {
     // and imaginary numbers are adding additional complexity without much of a use in game
 }
 
-// TODO: implement more numerical operations so we dont have to publicize the inner data
-// TODO: add increment and decrement
+
 // TODO: add domain restriction for units (e.g. natural numbers, whole numbers, integers, etc.)
+// NOTE: DO NOT access the inner data of each unit, they are publicize for concise initialization
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
 pub struct BlockUnit(pub f32);  // 1 In-Game Block Sized == 1 Meter; This is by default, should be global world.block unit
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
@@ -335,11 +336,13 @@ impl BlockUnit {
     }
 
     // increment
+    #[inline(always)]
     pub fn incr(self) -> Self {
         Self(self.0+1.0)
     }
 
     // decrement
+    #[inline(always)]
     pub fn decr(self) -> Self {
         Self(self.0-1.0)
     }
@@ -368,11 +371,13 @@ impl ChunkUnit {
     }
 
     // increment
+    #[inline(always)]
     pub fn incr(self) -> Self {
         Self(self.0+1.0)
     }
 
     // decrement
+    #[inline(always)]
     pub fn decr(self) -> Self {
         Self(self.0-1.0)
     }
@@ -397,11 +402,13 @@ impl SectorUnit {
     }
 
     // increment
+    #[inline(always)]
     pub fn incr(self) -> Self {
         Self(self.0+1.0)
     }
 
     // decrement
+    #[inline(always)]
     pub fn decr(self) -> Self {
         Self(self.0-1.0)
     }
@@ -556,5 +563,48 @@ impl Neg for SectorUnit {
 
     fn neg(self) -> Self::Output {
         Self(-self.0)
+    }
+}
+
+impl From<BlockUnit> for f32 {
+    fn from(itm: BlockUnit) -> Self {
+        itm.0
+    }
+}
+
+impl From<BlockUnit> for i32 {
+    fn from(itm: BlockUnit) -> Self {
+        itm.0.round() as i32
+    }
+}
+
+impl From<BlockUnit> for usize {
+    fn from(itm: BlockUnit) -> Self {
+        itm.0.round() as usize
+    }
+}
+
+
+impl From<LocalBU> for f32 {
+    fn from(itm: LocalBU) -> Self {
+        itm.0
+    }
+}
+
+impl From<ChunkUnit> for f32 {
+    fn from(itm: ChunkUnit) -> Self {
+        itm.0
+    }
+}
+
+impl From<ChunkUnit> for i64 {
+    fn from(itm: ChunkUnit) -> Self {
+        itm.0 as i64
+    }
+}
+
+impl From<SectorUnit> for f32 {
+    fn from(itm: SectorUnit) -> Self {
+        itm.0
     }
 }

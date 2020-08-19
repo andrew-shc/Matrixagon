@@ -1,11 +1,13 @@
 use self::cube::Cube;
-use super::mesh::cube::Side;
-use super::chunk::{Chunk, ChunkUpdate};
-use super::shader::{VertexType, IndexType, cube_vs};
-use super::world::ChunkID;
-use super::texture::{Texture, TextureID};
+use crate::world::mesh::cube::Side;
+use crate::world::chunk::Chunk;
+use crate::world::shader::{VertexType, IndexType, cube_vs};
+use crate::world::ChunkID;
+use crate::world::texture::{Texture, TextureID};
 use crate::datatype::Dimension;
-use super::player::Player;
+use crate::world::player::Player;
+use crate::event::types::ChunkEvents;
+use crate::world::player::camera::Camera;
 
 use vulkano::device::Device;
 use vulkano::framebuffer::RenderPassAbstract;
@@ -14,12 +16,10 @@ use vulkano::pipeline::GraphicsPipelineAbstract;
 use vulkano::buffer::{BufferAccess, TypedBufferAccess, CpuAccessibleBuffer, CpuBufferPool};
 use vulkano::pipeline::input_assembly::Index;
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
+use vulkano::descriptor::DescriptorSet;
 
 use std::sync::Arc;
-use vulkano::descriptor::DescriptorSet;
-use std::rc::Rc;
-use crate::event::types::ChunkEvents;
-use crate::world::player::camera::Camera;
+use crate::world::chunk_threadpool::ChunkThreadPool;
 
 
 pub mod cube;
@@ -130,8 +130,8 @@ impl<'c> MeshesStructType<'c> {
         self.cube.add_chunk(chunk_id);
     }
 
-    pub fn load_chunks(&mut self, chunks: &Vec<Chunk>) {
-        self.cube.load_chunks(&chunks);
+    pub fn load_chunks(&mut self, chunks: Vec<Chunk>, pool: &mut ChunkThreadPool) {
+        self.cube.load_chunks(chunks, pool);
     }
 
     pub fn remv_chunk(&mut self, id: ChunkID) {
@@ -197,7 +197,10 @@ pub trait Mesh {
     // render(); to return the graphic pipeline from the world.mesh to the main renderer
 
     fn add_chunk(&mut self, chunk_id: ChunkID);  // adds the reference of the chunk to the chunk database of the world.mesh
-    fn load_chunks(&mut self, chunks: &Vec<Chunk>);  // loads all the chunks' data to the world.mesh's main vertices and indices vector
+    fn load_chunks(&mut self,
+                   chunks: Vec<Chunk>,
+                   pool: &mut ChunkThreadPool,
+    );  // loads all the chunks' data to the world.mesh's main vertices and indices vector
     fn updt_chunks(&mut self, id: ChunkID);  // updates the chunk (blocks, lighting, other chunk-bound info)
     fn remv_chunk(&mut self, id: ChunkID);  // remove the chunk from the chunk database of the world.mesh
     fn updt_world(&mut self, dimensions: Dimension<u32>, player: &Player);  // updates world-bound info

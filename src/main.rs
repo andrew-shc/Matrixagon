@@ -1,5 +1,3 @@
-#[macro_use]
-extern crate bitflags;
 extern crate nalgebra as na;
 
 use vulkano::{
@@ -14,7 +12,6 @@ use winit::dpi::{Position, PhysicalPosition};
 
 use crate::app::MainApp;
 use crate::datatype::CamDirection;
-use winit::event::MouseButton;
 
 mod ui;
 mod world;
@@ -103,6 +100,7 @@ fn main() {
 
     event_loop.run( move |event, _, control_flow| {
         dimensions = surface.window().inner_size().into();
+        // println!("D {:?}", dimensions);
 
         match event {
             Event::WindowEvent { event, .. } => {
@@ -111,16 +109,24 @@ fn main() {
                     WindowEvent::KeyboardInput { input, ..} => {
                         match input {
                             KeyboardInput { virtual_keycode: key, state: ElementState::Pressed, ..} => {
-                                match key.unwrap() {
-                                    K::Escape => {*control_flow = ControlFlow::Exit},
-                                    K::T => {cmd_mode = !cmd_mode},
-                                    K::A => { if !pressed.contains(&K::A) {pressed.push(K::A);} },
-                                    K::D => { if !pressed.contains(&K::D) {pressed.push(K::D);} },
-                                    K::W => { if !pressed.contains(&K::W) {pressed.push(K::W);} },
-                                    K::S => { if !pressed.contains(&K::D) {pressed.push(K::S);} },
-                                    K::LShift => { if !pressed.contains(&K::LShift) {pressed.push(K::LShift);} },
-                                    K::Space =>  { if !pressed.contains(&K::Space) {pressed.push(K::Space);} },
-                                    _ => {}
+                                if let Some(k) = key {
+                                    match k {
+                                        K::Escape => {*control_flow = ControlFlow::Exit},
+                                        K::T => {cmd_mode = !cmd_mode},
+                                        K::A => { if !pressed.contains(&K::A) {pressed.push(K::A);} },
+                                        K::D => { if !pressed.contains(&K::D) {pressed.push(K::D);} },
+                                        K::W => { if !pressed.contains(&K::W) {pressed.push(K::W);} },
+                                        K::S => { if !pressed.contains(&K::D) {pressed.push(K::S);} },
+                                        K::LShift => { if !pressed.contains(&K::LShift) {pressed.push(K::LShift);} },
+                                        K::Space =>  { if !pressed.contains(&K::Space) {pressed.push(K::Space);} },
+                                        K::LControl => {
+                                            // TODO: Use the event system after App Event & World Event is added
+                                            app.world.player.camera.trans_speed = 0.25;
+                                        },
+                                        _ => {}
+                                    }
+                                } else {
+                                    println!("An invalid key registered. Please make sure you are only returning ASCII character");
                                 }
                             },
                             KeyboardInput { virtual_keycode: key, state: ElementState::Released, ..} => {
@@ -132,6 +138,9 @@ fn main() {
                                         K::S => { if pressed.contains(&K::S) {pressed.retain(|i| i != &K::S);} },
                                         K::LShift => { if pressed.contains(&K::LShift) {pressed.retain(|i| i != &K::LShift);} },
                                         K::Space => { if pressed.contains(&K::Space) {pressed.retain(|i| i != &K::Space);} },
+                                        K::LControl => {
+                                            app.world.player.camera.trans_speed = 0.1;
+                                        },
                                         _ => {}
                                     }
                                 }

@@ -1,5 +1,5 @@
 use crate::event::EventType;
-use crate::world::world::ChunkID;
+use crate::world::ChunkID;
 use crate::datatype::{Position, ChunkUnit};
 
 #[derive(Copy, Clone, Debug, PartialEq)]

@@ -1,25 +1,24 @@
-use super::player::camera::Camera;
-use crate::datatype::{Rotation, Position};
-
-use std::fmt::{Debug, Formatter};
-use std::fmt;
-use vulkano::pipeline::raster::PolygonMode::Point;
+use crate::world::player::camera::Camera;
+use crate::datatype::Rotation;
 
 use na::{
     Point3,
 };
-use super::chunk::Chunk;
+
+use std::fmt::{Debug, Formatter};
+use std::fmt;
+
 
 pub mod camera;
 
 
 // chunk radius in chunk size
-pub const CHUNK_RADIUS: u32 = 1;
+pub const CHUNK_RADIUS: u32 = 2;
 // the radius of which the world.player can edit the world
 pub const EDIT_RADIUS: u32 = 10;
 
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Player {
     pub camera: Camera,
 }
@@ -28,8 +27,8 @@ impl Player {
     pub fn new() -> Self {
         Self {
             camera: Camera::new(
-                0.005,
-                0.2,
+                0.002,
+                0.1,
                 Point3::new(0.0, 0.0, 0.0),
                 Rotation::new(0.0, 0.0, 0.0),
             )

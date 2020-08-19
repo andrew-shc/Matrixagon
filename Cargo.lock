@@ -1092,9 +1092,10 @@ dependencies = [
 name = "the_endless_world"
 version = "0.1.0"
 dependencies = [
- "bitflags",
+ "crossbeam",
  "nalgebra",
  "num-traits",
+ "num_cpus",
  "oorandom",
  "png",
  "rayon",
