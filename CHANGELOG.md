@@ -8,10 +8,22 @@
 * Add update queues to synchronize the game
 
 ### Unreleased (Generally ordered from top to bottom)
-* [ ] Add a world event system
-* [ ] Added block placing and breaking
+- Added a world event system
+- Added block placing and breaking
+- Render a chunk first to start the render data than render the rest of it?
+
 * [ ] Create an external World Command DSL API interface
 * [ ] Create a text file reader to fetch commands into the interface
+
+* Add structures
+* Block updates
+* Stop chunk generation if not needed while it is generating
+* Fix the negative perline noise issue
+* Smarter chunk generation: generate first where the player is standing the closest
+* Options for faster chunk generations:
+    * Save loaded chunk datas to disk instead of memory
+    * Using GPU to generate chunk datas
+    * Thread #'s
 
 * Faster chunk loading on the chunk thread
 * Render Optimization:
@@ -28,6 +40,21 @@
 * Add a terrain generation
 * Internal:
     * Add a global shared reference on block registry (Arc<T>)
+    
+### v0.1.3 [Aug 23, 2020] (The most fruitful update so far :D)
+* __Fixed__: Minimizing window crashes the app because of Dimension {0,0}
+    * currently halts the app when the window is minimized
+* Added basic block lighting system
+* Added new mesh: Flora; to add some grass and flowers into the terrain
+* Added sand blocks to the terrain generation
+* Added Perlin noise for heightmap generation
+* Prevent chunk loading below y-level 0
+* Internal:
+    * Changed the mesh of the Air block from Cube -> Air mesh; a noticeable
+     improvement on the performance of chunk loading
+    * Refactored the texture manager to hold `sampler2DArray` instead of `sampler2D[]`.
+    This should allow adding new texture much more dynamic and easier (with still almost same performance)
+    * Codebase deep clean
     
 ### v0.1.2 [Aug 19, 2020]
 * [x] __Fixed__: Graphic pipeline does not update to a new size of the window in a reasonable amount of time; and now will be immediately update

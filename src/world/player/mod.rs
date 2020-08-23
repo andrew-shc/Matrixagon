@@ -13,7 +13,7 @@ pub mod camera;
 
 
 // chunk radius in chunk size
-pub const CHUNK_RADIUS: u32 = 2;
+pub const CHUNK_RADIUS: u32 = 3;
 // the radius of which the world.player can edit the world
 pub const EDIT_RADIUS: u32 = 10;
 
@@ -29,7 +29,8 @@ impl Player {
             camera: Camera::new(
                 0.002,
                 0.1,
-                Point3::new(0.0, 0.0, 0.0),
+                // to avoid the negative perlin noise for now
+                Point3::new(1000.0, 64.0, 1000.0),
                 Rotation::new(0.0, 0.0, 0.0),
             )
         }

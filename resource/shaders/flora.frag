@@ -2,7 +2,6 @@
 
 layout(location = 0) flat in uint pass_ind;
 layout(location = 1)      in vec2 pass_txtr;
-layout(location = 2) flat in uint pass_light;
 
 layout(location = 0) out vec4 f_color;
 
@@ -23,5 +22,5 @@ void main() {
     0 -- 2
     */
 
-    f_color = texture(txtr, vec3(pass_txtr, pass_ind)) * vec4(float(pass_light)/16., float(pass_light)/16., float(pass_light)/16., 1.0);
+    f_color = texture(txtr, vec3(pass_txtr, pass_ind));
 }

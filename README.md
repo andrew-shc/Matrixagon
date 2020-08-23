@@ -2,7 +2,8 @@
 A game heavily-inspired by the terrain generation of Minecraft and other Minecraft
 mods using Rust's Vulkan Wrapper (Vulkano) to construct the game.
 
-![Matrixagon Terrain Gen View](./doc/Matrixagon000_2.png)
+![Matrixagon Terrain Gen View](./doc/Matrixagon003.png)
+![Matrixagon Terrain Gen View](./doc/Matrixagon002.png)
 
 ### General
 This game is a block-based game similiar to Minecraft, but prioritize on block 
@@ -26,6 +27,9 @@ This project will not be compiled to binaries as of yet. Though you can compile
 the source on your OS to run the program.
 
 NOTE: The following procedure assumes you are on a OS (that also supports Vulkan API).
+
+NOTE: The current CPU (Intel i7 8th gen) usage can be up to 80-100% when generating a lot of chunks
+NOTE: The current Memory usage can be 2K-5K MB; fluctuates a lot when generating chunks
 
 1. Under the green button of this repo's homepage, click on "Download ZIP"
 2. Find the zip file, then extract to your desired location.

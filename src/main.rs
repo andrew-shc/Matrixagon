@@ -8,7 +8,7 @@ use vulkano::{
 use vulkano_win::VkSurfaceBuild;
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
-use winit::dpi::{Position, PhysicalPosition};
+use winit::dpi::{Position, PhysicalPosition, PhysicalSize};
 
 use crate::app::MainApp;
 use crate::datatype::CamDirection;
@@ -97,6 +97,7 @@ fn main() {
     let mut pressed: Vec<K> = Vec::new();
     let mut cmd_mode = false;
     let mut focused = true;
+    let mut minimized = false;
 
     event_loop.run( move |event, _, control_flow| {
         dimensions = surface.window().inner_size().into();
@@ -106,46 +107,61 @@ fn main() {
             Event::WindowEvent { event, .. } => {
                 match event {
                     WindowEvent::CloseRequested => {*control_flow = ControlFlow::Exit},
+                    WindowEvent::Resized(size) => {
+                        let PhysicalSize {width, height} = size;
+                        if width == 0 && height == 0 {
+                            println!("Screen minimized");
+                            minimized = true;
+                        } else {
+                            if minimized {
+                                println!("Screen un-minimized");
+                            }
+                            minimized = false;
+                        }
+                    },
                     WindowEvent::KeyboardInput { input, ..} => {
-                        match input {
-                            KeyboardInput { virtual_keycode: key, state: ElementState::Pressed, ..} => {
-                                if let Some(k) = key {
-                                    match k {
-                                        K::Escape => {*control_flow = ControlFlow::Exit},
-                                        K::T => {cmd_mode = !cmd_mode},
-                                        K::A => { if !pressed.contains(&K::A) {pressed.push(K::A);} },
-                                        K::D => { if !pressed.contains(&K::D) {pressed.push(K::D);} },
-                                        K::W => { if !pressed.contains(&K::W) {pressed.push(K::W);} },
-                                        K::S => { if !pressed.contains(&K::D) {pressed.push(K::S);} },
-                                        K::LShift => { if !pressed.contains(&K::LShift) {pressed.push(K::LShift);} },
-                                        K::Space =>  { if !pressed.contains(&K::Space) {pressed.push(K::Space);} },
-                                        K::LControl => {
-                                            // TODO: Use the event system after App Event & World Event is added
-                                            app.world.player.camera.trans_speed = 0.25;
-                                        },
-                                        _ => {}
+                        if !minimized {
+                            match input {
+                                KeyboardInput { virtual_keycode: key, state: ElementState::Pressed, ..} => {
+                                    if let Some(k) = key {
+                                        match k {
+                                            K::Escape => {*control_flow = ControlFlow::Exit},
+                                            K::T => {cmd_mode = !cmd_mode},
+                                            K::A => { if !pressed.contains(&K::A) {pressed.push(K::A);} },
+                                            K::D => { if !pressed.contains(&K::D) {pressed.push(K::D);} },
+                                            K::W => { if !pressed.contains(&K::W) {pressed.push(K::W);} },
+                                            K::S => { if !pressed.contains(&K::D) {pressed.push(K::S);} },
+                                            K::LShift => { if !pressed.contains(&K::LShift) {pressed.push(K::LShift);} },
+                                            K::Space =>  { if !pressed.contains(&K::Space) {pressed.push(K::Space);} },
+                                            K::LControl => {
+                                                // TODO: Use the event system after App Event & World Event is added
+                                                app.world.player.camera.trans_speed = 0.25;
+                                            },
+                                            _ => {}
+                                        }
+                                    } else {
+                                        println!("An invalid key registered. Please make sure you are only returning ASCII character");
                                     }
-                                } else {
-                                    println!("An invalid key registered. Please make sure you are only returning ASCII character");
-                                }
-                            },
-                            KeyboardInput { virtual_keycode: key, state: ElementState::Released, ..} => {
-                                if let Some(key) = key {
-                                    match key {
-                                        K::A => { if pressed.contains(&K::A) {pressed.retain(|i| i != &K::A);} },
-                                        K::D => { if pressed.contains(&K::D) {pressed.retain(|i| i != &K::D);} },
-                                        K::W => { if pressed.contains(&K::W) {pressed.retain(|i| i != &K::W);} },
-                                        K::S => { if pressed.contains(&K::S) {pressed.retain(|i| i != &K::S);} },
-                                        K::LShift => { if pressed.contains(&K::LShift) {pressed.retain(|i| i != &K::LShift);} },
-                                        K::Space => { if pressed.contains(&K::Space) {pressed.retain(|i| i != &K::Space);} },
-                                        K::LControl => {
-                                            app.world.player.camera.trans_speed = 0.1;
-                                        },
-                                        _ => {}
+                                },
+                                KeyboardInput { virtual_keycode: key, state: ElementState::Released, ..} => {
+                                    if let Some(key) = key {
+                                        match key {
+                                            K::A => { if pressed.contains(&K::A) {pressed.retain(|i| i != &K::A);} },
+                                            K::D => { if pressed.contains(&K::D) {pressed.retain(|i| i != &K::D);} },
+                                            K::W => { if pressed.contains(&K::W) {pressed.retain(|i| i != &K::W);} },
+                                            K::S => { if pressed.contains(&K::S) {pressed.retain(|i| i != &K::S);} },
+                                            K::LShift => { if pressed.contains(&K::LShift) {pressed.retain(|i| i != &K::LShift);} },
+                                            K::Space => { if pressed.contains(&K::Space) {pressed.retain(|i| i != &K::Space);} },
+                                            K::LControl => {
+                                                app.world.player.camera.trans_speed = 0.1;
+                                            },
+                                            _ => {}
+                                        }
                                     }
                                 }
                             }
                         }
+
                     },
                     WindowEvent::MouseInput { state, button, .. } => {
                         if !cmd_mode {
@@ -172,9 +188,12 @@ fn main() {
                     app.world.player.camera.rotate(delta.1 as f32, 0.0, 0.0);
                     app.world.player.camera.rotate(0.0, delta.0 as f32, 0.0);
 
-                    surface.window().set_cursor_position(
+                    let res = surface.window().set_cursor_position(
                         Position::Physical(PhysicalPosition{ x: dimensions.width as i32/2, y: dimensions.height as i32/2 })
                     );
+                    if let Err(e) = res {
+                        println!("Setting mouse position of the windows caused an error of {}", e);
+                    }
                 }
             },
             // this calls last after all the event finishes emitting
@@ -192,7 +211,9 @@ fn main() {
                 app.world.player.camera.travel(directions);
             },
             Event::RedrawEventsCleared => {
-                app.update(dimensions);
+                if !minimized {
+                    app.update(dimensions);
+                }
             },
             _ => {},
         }

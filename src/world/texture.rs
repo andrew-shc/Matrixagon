@@ -7,7 +7,8 @@ use vulkano::sync::NowFuture;
 use std::sync::Arc;
 use std::io::Cursor;
 use std::collections::BTreeMap;
-use std::mem;
+use std::path::Path;
+use std::{mem, fs};
 
 use png;
 
@@ -20,9 +21,11 @@ pub struct TextureID(pub u32, pub &'static str);
 pub struct Texture {
     queue: Arc<Queue>,
 
+    txtr_width: u32,
+    txtr_height: u32,
     txtr_cnt: u32,  // texture ID counter
-    textures: BTreeMap<TextureID, TextureComponent>,
-    futures: Vec<CommandBufferExecFuture<NowFuture, AutoCommandBuffer>>,
+
+    textures: Vec<(Vec<u8>, TextureID)>,  // raw texture info: (texture RGBA data, txtr-id)
 }
 
 impl Texture {
@@ -30,99 +33,78 @@ impl Texture {
         Self {
             queue: queue.clone(),
 
+            txtr_width: 16,
+            txtr_height: 16,
             txtr_cnt: 0,
-            textures: BTreeMap::new(),
-            futures: Vec::new(),
+            textures: Vec::new(),
         }
     }
 
-    pub fn add(&mut self, txtr_bytes: Vec<u8>, name: &'static str)
-        -> TextureID {
-        let (texture, future) = TextureComponent::new(self.queue.clone(), txtr_bytes, name);
-        let id = TextureID(self.txtr_cnt, name);
-
-        self.textures.insert(id.clone(), texture);
-        self.futures.push(future);
-        self.txtr_cnt += 1;
-
-        id
-    }
-
-    pub fn futures(&mut self) -> Vec<CommandBufferExecFuture<NowFuture, AutoCommandBuffer>> {
-        let fut = mem::replace(&mut self.futures, Vec::new());
-        fut
-    }
-
-    pub fn id_name(&self, name: String) -> Option<TextureID> {
+    pub fn id_name(&self, name: &str) -> Option<TextureID> {
         let mut texture_id = None;
-        for (id, _) in self.textures.iter() {
-            if id.1 == name {
-                texture_id = Some(id.clone());
+        for (_, tid) in self.textures.iter() {
+            if tid.1 == name {
+                texture_id = Some(*tid);
+                break;
             }
         };
         texture_id  // clones the ID, then unwraps it to deref the internal data and then wrap it again with Some
     }
 
-    pub fn texture_id(&self, id: &TextureID) -> &TextureComponent {
-        self.textures.get(id).expect(format!("Invalid Texture ID: {:?}", id).as_str())
-    }
+    // adds the texture data
+    pub fn add_texture(&mut self, file_name: &str, txtr_name: &'static str) -> TextureID {
+        // retrieves the .png byte data from the file
+        let byte_stream = fs::read(Path::new(file_name)).expect(&format!("Texture file '{}' not found!", file_name)[..]);
 
-    pub fn texture_name(&self, name: String) -> &TextureComponent {
-        let mut texture = None;
-        for id in self.textures.keys() {
-            if id.1 == name {
-                if let Some(t) = self.textures.get(id) {
-                    texture = Some(t);
-                }
-            }
-        }
-        texture.expect(format!("Expected textures or inavlid texture: {}", name).as_str())
-    }
-
-
-    // TODO: might need to turn it into a static array
-    pub fn texture_array(&self) -> Vec<Arc<ImmutableImage<Format>>> {
-        let mut textures = Vec::new();
-        for (_id, txtr) in self.textures.iter() {
-            textures.push(txtr.texture.clone());
-        }
-        textures
-    }
-
-    pub fn texture_len(&self) -> usize {
-        self.textures.len()
-    }
-}
-
-pub struct TextureComponent {
-    texture: Arc<ImmutableImage<Format>>,
-    name: &'static str,  // internal texture name used internally in game
-}
-
-impl TextureComponent {
-    pub fn new(queue: Arc<Queue>, txtr_bytes: Vec<u8>, name: &'static str)
-        -> (Self, CommandBufferExecFuture<NowFuture, AutoCommandBuffer>) {
-        let cursor = Cursor::new(txtr_bytes);
+        // decodes file meta information
+        let cursor = Cursor::new(byte_stream);
         let decoder = png::Decoder::new(cursor);
         let (info, mut reader) = decoder.read_info().unwrap();
-        let dimensions = Dimensions::Dim2d { width: info.width, height: info.height };
+
+        if info.height != self.txtr_height {
+            println!("Warning: The texture '{}' has a height of {}, but the program is expecting a texture height of {}",
+                     file_name, info.height, self.txtr_height);
+        }
+        if info.width != self.txtr_width {
+            println!("Warning: The texture '{}' has a width of {}, but the program is expecting a texture width of {}",
+                     file_name, info.height, self.txtr_height);
+        }
+
+        // formats decoded data into a texture RGBA format data
         let mut txtr_data = Vec::new();
         txtr_data.resize((info.width * info.height * 4) as usize, 0);
         reader.next_frame(&mut txtr_data).unwrap();
 
+        let id = TextureID(self.txtr_cnt, txtr_name);
+        self.txtr_cnt += 1;
+
+        self.textures.push((txtr_data, id));
+
+        id
+    }
+
+    // builds all the texture datas into a single texture array buffer
+    pub fn texture_future(&mut self)
+        -> (Arc<ImmutableImage<Format>>, CommandBufferExecFuture<NowFuture, AutoCommandBuffer>) {
+        let dimensions = Dimensions::Dim2dArray {
+            width: self.txtr_width,
+            height: self.txtr_height,
+            array_layers: self.textures.len() as u32
+        };
+
+        let mut all_textures = Vec::new();
+        for (dt, id) in self.textures.iter() {
+            all_textures.append(&mut dt.clone());
+        }
+
         let (texture, future) = ImmutableImage::from_iter(
-            txtr_data.into_iter(),
+            all_textures.into_iter(),
             dimensions,
             Format::R8G8B8A8Unorm,
-            queue.clone(),
+            self.queue.clone(),
         ).unwrap();
 
-        (
-            Self {
-                texture: texture,
-                name: name,
-            },
-            future,
-        )
+        // (actual texture data, command buffer)
+        (texture, future)
     }
 }

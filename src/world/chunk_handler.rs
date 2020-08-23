@@ -46,7 +46,7 @@ pub struct ChunkHandler {
 
     event: EventQueue<ChunkEvents>,  // event queue
     chunks: Vec<Chunk>,  // vectors of chunks
-    meshes: MeshesStructType<'static>,  // world meshes
+    meshes: MeshesStructType,  // world meshes
     terrain: Terrain,  // terrain of the world
 
     cid_counter: u32,  // chunk id counter
@@ -60,7 +60,7 @@ pub struct ChunkHandler {
 impl ChunkHandler {
     pub fn new(device: Arc<Device>, queue: Arc<Queue>,
                inp_rx: mpsc::Receiver<ThreadInput>, out_tx: mpsc::Sender<ThreadOutput>,
-               meshes: MeshesStructType<'static>, terrain: Terrain) -> Self {
+               meshes: MeshesStructType, terrain: Terrain) -> Self {
         Self {
             device: device.clone(),
             queue: queue.clone(),
@@ -71,6 +71,8 @@ impl ChunkHandler {
             terrain: terrain,
 
             cid_counter: 0,
+            // high number: faster chunk generation but laggier across the whole computer
+            // low number: slower chunk generation (maybe even stack overflow) but smoother across the whole computer
             chunk_threadpool: ChunkThreadPool::new(8),
 
             chunk_chan_inp_rx: inp_rx,
@@ -82,7 +84,7 @@ impl ChunkHandler {
     pub fn instantiate(mut self) {
         let thread_builder = thread::Builder::new()
             .name("Chunk Handler".into());
-        thread_builder.spawn( move || {
+        let res = thread_builder.spawn( move || {
             loop {
                 match self.chunk_chan_inp_rx.try_recv() {
                     Ok(buf) => {
@@ -100,6 +102,9 @@ impl ChunkHandler {
                 // thread::sleep(Duration::from_millis(10));
             }
         });
+        if let Err(e) = res {
+            println!("The 'Chunk Handler' thread has failed to spawn correctly: {}", e);
+        }
     }
 
     // updates every game tick, then returns the World Mesh Data
@@ -114,19 +119,21 @@ impl ChunkHandler {
             (state.player.camera.position.coords.data[2] / CHUNK_SIZE as f32).floor() as i64,
         );
 
-        for x in -(CHUNK_RADIUS as i64)..CHUNK_RADIUS as i64 {
-            for y in -(CHUNK_RADIUS as i64)..CHUNK_RADIUS as i64 {
-                for z in -(CHUNK_RADIUS as i64)..CHUNK_RADIUS as i64 {
-                    // The id grabber will automatically check for any dupe position
+        for x in -(CHUNK_RADIUS as i64)..=CHUNK_RADIUS as i64 {
+            for y in -(CHUNK_RADIUS as i64)..=CHUNK_RADIUS as i64 {
+                for z in -(CHUNK_RADIUS as i64)..=CHUNK_RADIUS as i64 {
+                    // prevent chunk generation below y-level 0
+                    if (chunk_pos.y+y) >= 0 {
+                        let new_pos = Position::new(
+                            ChunkUnit((chunk_pos.x+x) as f32),
+                            ChunkUnit((chunk_pos.y+y) as f32),
+                            ChunkUnit((chunk_pos.z+z) as f32),
+                        );
 
-                    let new_pos = Position::new(
-                        ChunkUnit((chunk_pos.x+x) as f32),
-                        ChunkUnit((chunk_pos.y+y) as f32),
-                        ChunkUnit((chunk_pos.z+z) as f32),
-                    );
-
-                    if let Ok(_) = self.chunk_id(new_pos) {
-                        events.push(ChunkEvents::LoadChunk(new_pos));
+                        // The id grabber will automatically check for any dupe position
+                        if let Ok(_) = self.chunk_id(new_pos) {
+                            events.push(ChunkEvents::LoadChunk(new_pos));
+                        }
                     }
                 }
             }
@@ -140,8 +147,6 @@ impl ChunkHandler {
                 events.push(ChunkEvents::OffloadChunk(chunk.id));
             }
         }
-
-        println!("E: {:?} S: {:?}", events, state.rerender);
 
         // println!("[Chunk Thread] Events: {:?}", events);
 

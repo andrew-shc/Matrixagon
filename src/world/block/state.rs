@@ -8,6 +8,7 @@ pub enum Matter {
 // TODO: add seriliaziation in near future
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct BlockState {
+    // pub static_block: bool,
     pub matter: Matter,
     pub transparent: bool,
     pub placeable: bool,

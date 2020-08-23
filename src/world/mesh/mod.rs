@@ -3,7 +3,7 @@ use crate::world::mesh::cube::Side;
 use crate::world::chunk::Chunk;
 use crate::world::shader::{VertexType, IndexType, cube_vs};
 use crate::world::ChunkID;
-use crate::world::texture::{Texture, TextureID};
+use crate::world::texture::TextureID;
 use crate::datatype::Dimension;
 use crate::world::player::Player;
 use crate::event::types::ChunkEvents;
@@ -20,20 +20,29 @@ use vulkano::descriptor::DescriptorSet;
 
 use std::sync::Arc;
 use crate::world::chunk_threadpool::ChunkThreadPool;
+use crate::world::mesh::flora_x::FloraX;
+use vulkano::image::ImmutableImage;
+use vulkano::format::Format;
 
 
+pub mod air;
 pub mod cube;
+pub mod flora_x;
 
 // MeshType denotes what type of meshes the object uses with the object's texture info
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MeshType {  // all TextureID has a same lifetime
-    // the specified world.block does not require a world.mesh
+    // a null block for temporary placeholder or default block for unknown blocks
     Null,
+    // air is just an absence of block of an area
+    Air,
     // an texture id for each of the 6 side of the cube
     Cube {top: TextureID, bottom: TextureID, left: TextureID,
         right: TextureID, front: TextureID, back: TextureID},
-    // direction of each pane, since the Flora world.mesh uses 2 pane to create an x-shape
-    // Flora {positive: u8, negative: u8}
+    // a x-shaped mesh using two textures; positive means facing (+x,+y) while negative means facing towards (-x,-y)
+    FloraX {positive: TextureID, negative: TextureID},
+    // A #-symbol shape
+    // FloraH {north, south, east, west}
 }
 
 impl MeshType {
@@ -76,6 +85,7 @@ impl MeshType {
     }
 }
 
+// note: generic types here is only just for a reference, compiler does not enforce it
 pub type MeshDataType<'b, V: VertexType + Send + Sync, I: IndexType + Send + Sync> = (
     Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
     DynamicState,  // dynamic state for display
@@ -86,61 +96,69 @@ pub type MeshDataType<'b, V: VertexType + Send + Sync, I: IndexType + Send + Syn
 );
 
 pub type MeshesDataType<'b> = Meshes<
-    MeshDataType<'b, <Cube<'b> as Mesh>::Vertex, <Cube<'b> as Mesh>::Index>,
+    MeshDataType<'b, <Cube as Mesh>::Vertex, <Cube as Mesh>::Index>,
+    MeshDataType<'b, <FloraX as Mesh>::Vertex, <FloraX as Mesh>::Index>,
 >;
 
-pub type MeshesStructType<'c> = Meshes<
-    Cube<'c>,
+pub type MeshesStructType = Meshes<
+    Cube,
+    FloraX,
 >;
 
 // this struct is merely used to organized each individual meshes
-pub struct Meshes<C> {
+pub struct Meshes<C, Fx> {
     pub cube: C,
-    // flora1: a x-shaped world.mesh for flora
-    // flora2: a tic-tac-toe shaped world.mesh for flora
+    pub flora_x: Fx, // an x-shaped mesh for flora
+    // flora_h: a tic-tac-toe shaped mesh for flora
     // liquid: a similar shape to cube, but transparent and slightly lower on the top
     // custom: a world.block-size bounded world.mesh
     // debug: a line based rendering to show chunk borders, hitboxed, and all those goodies
 }
 
-impl<C: Clone> Clone for Meshes<C> {
+impl<C: Clone, Fx: Clone> Clone for Meshes<C, Fx> {
     fn clone(&self) -> Self {
         Self {
-            cube: self.cube.clone()
+            cube: self.cube.clone(),
+            flora_x: self.flora_x.clone(),
         }
     }
 }
 
 // a world mesh manager to manages multiple meshes at the same time
-impl<'c> MeshesStructType<'c> {
+impl MeshesStructType {
     pub fn new(
         device: Arc<Device>,
-        txtr: &Texture,
+        txtr: Arc<ImmutableImage<Format>>,
         renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
         dimensions: Dimension<u32>,
     ) -> Self {
         println!("MESHES - INITIALIZED");
 
         Self {
-            cube: Cube::new(device.clone(), txtr, renderpass.clone(), dimensions),
+            cube: Cube::new(device.clone(), txtr.clone(), renderpass.clone(), dimensions),
+            flora_x: FloraX::new(device.clone(), txtr.clone(), renderpass.clone(), dimensions),
         }
     }
 
     pub fn add_chunk(&mut self, chunk_id: ChunkID) {
         self.cube.add_chunk(chunk_id);
+        self.flora_x.add_chunk(chunk_id);
     }
 
     pub fn load_chunks(&mut self, chunks: Vec<Chunk>, pool: &mut ChunkThreadPool) {
-        self.cube.load_chunks(chunks, pool);
+        self.cube.load_chunks(chunks.clone(), pool);
+        self.flora_x.load_chunks(chunks, pool);
     }
 
     pub fn remv_chunk(&mut self, id: ChunkID) {
         self.cube.remv_chunk(id);
+        self.flora_x.remv_chunk(id);
     }
 
     // update meshes
     pub fn update(&mut self, dimensions: Dimension<u32>, player: &Player) {
         self.cube.updt_world(dimensions, player);
+        self.flora_x.updt_world(dimensions, player);
     }
 
     // re-renders the vertex and index data
@@ -153,7 +171,8 @@ impl<'c> MeshesStructType<'c> {
         chunk_events: Vec<ChunkEvents>,
     ) -> MeshesDataType<'b> {
         Meshes {
-            cube: self.cube.render(device.clone(), renderpass.clone(), dimensions, rerender, chunk_events),
+            cube: self.cube.render(device.clone(), renderpass.clone(), dimensions, rerender, chunk_events.clone()),
+            flora_x: self.flora_x.render(device.clone(), renderpass.clone(), dimensions, rerender, chunk_events),
         }
     }
 }
@@ -164,20 +183,31 @@ impl<'b> MeshesDataType<'b> {
     pub fn update_camera(&mut self, device: Arc<Device>, cam: &Camera, dimensions: Dimension<u32>,) {
         let (proj, view, world) = cam.gen_mvp(dimensions);
 
-        // TODO: Somehow manage the uniform (shared across the meshes) buffer
         let persp_mat = CpuBufferPool::uniform_buffer(device.clone());
 
         let persp_buf = Some(persp_mat.next(
             cube_vs::ty::MVP {proj: proj, view: view, world: world}
         ).unwrap());
 
-        let layout1 = self.cube.0.descriptor_set_layout(1).unwrap();
-        let set1 = Arc::new(PersistentDescriptorSet::start(layout1.clone())
-            .add_buffer(persp_buf.as_ref().unwrap().clone()).unwrap()
-            .build().unwrap()
-        );
+        let sets = Meshes {
+            cube: {
+                let layout = self.cube.0.descriptor_set_layout(1).unwrap();
+                Arc::new(PersistentDescriptorSet::start(layout.clone())
+                    .add_buffer(persp_buf.as_ref().unwrap().clone()).unwrap()
+                    .build().unwrap()
+                )
+            },
+            flora_x: {
+                let layout = self.flora_x.0.descriptor_set_layout(1).unwrap();
+                Arc::new(PersistentDescriptorSet::start(layout.clone())
+                    .add_buffer(persp_buf.as_ref().unwrap().clone()).unwrap()
+                    .build().unwrap()
+                )
+            },
+        };
 
-        self.cube.4 = vec![self.cube.4[0].clone(), set1];
+        self.cube.4 = vec![self.cube.4[0].clone(), sets.cube];
+        self.flora_x.4 = vec![self.flora_x.4[0].clone(), sets.flora_x];
     }
 }
 

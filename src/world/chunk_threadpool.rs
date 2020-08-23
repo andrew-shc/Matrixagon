@@ -75,7 +75,10 @@ impl ChunkThreadPool {
         self.channels.push((inp.0, rx));
 
         self.threadpool.spawn(move || {
-            tx.send(inp.1());
+            let res = tx.send(inp.1());
+            if let Err(e) = res {
+                println!("A thread in the chunk mesh generation threadpool has failed to send the data: {}", e);
+            }
         });
     }
 

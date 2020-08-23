@@ -1,7 +1,7 @@
 use crate::datatype::{Dimension, Position, ChunkUnit, BlockUnit};
 use crate::world::mesh::{Mesh, MeshType};
-use crate::world::chunk::{Chunk, CHUNK_SIZE};
-use crate::world::shader::{CubeVert, cube_vs, cube_fs};
+use crate::world::chunk::Chunk;
+use crate::world::shader::{FloraVert, flora_vs, flora_fs};
 use crate::world::ChunkID;
 use crate::world::block::Block;
 use crate::world::player::Player;
@@ -25,51 +25,45 @@ use rayon::prelude::*;
 
 use std::sync::Arc;
 use std::iter;
-use std::marker::PhantomData;
 use crate::world::chunk_threadpool::{ChunkThreadPool, ThreadPoolOutput};
 
 
 pub enum Side {
-    Top,
-    Bottom,
-    Left,
-    Right,
-    Front,
-    Back,
+    Positive,  // facing (+x,+y)
+    Negative,  // facing (-x,-y)
 }
 
-// only stores an immutable reference to a vector of meshes
-// the cube mesh will only re-render the render data when the is update
-pub struct Cube {
+// flora mesh is basically two diagonal textures corssing each other
+pub struct FloraX {
     textures: Arc<ImmutableImage<Format>>,
     // chunks: Chunk Reference, Chunk Cullling, Chunk Vertices, Chunk Indices
     chunks: Vec<(ChunkID, bool, Vec<<Self as Mesh>::Vertex>, Vec<<Self as Mesh>::Index>)>,
     grph_pipe: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
 
-    vert_shd: cube_vs::Shader,
-    frag_shd: cube_fs::Shader,
+    vert_shd: flora_vs::Shader,
+    frag_shd: flora_fs::Shader,
 
-    persp_mat: CpuBufferPool<cube_vs::ty::MVP>,
-    persp_buf: Option<CpuBufferPoolSubbuffer<cube_vs::ty::MVP, Arc<StdMemoryPool>>>,
+    persp_mat: CpuBufferPool<flora_vs::ty::MVP>,
+    persp_buf: Option<CpuBufferPoolSubbuffer<flora_vs::ty::MVP, Arc<StdMemoryPool>>>,
     sampler: Arc<Sampler>,
 
     vertices: Vec<<Self as Mesh>::Vertex>,  // aggregated vertices (stored to optimize)
     indices: Vec<<Self as Mesh>::Index>,  // aggregated indices (stored to optimize)
 }
 
-impl Cube {
+impl FloraX {
     pub fn new(device: Arc<Device>,
                texture: Arc<ImmutableImage<Format>>,
                render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
                dimensions: Dimension<u32>
     ) -> Self {
-        let vs = cube_vs::Shader::load(device.clone()).expect("failed to create cube vertex shaders module");
-        let fs = cube_fs::Shader::load(device.clone()).expect("failed to create cube fragment shaders module");
+        let vs = flora_vs::Shader::load(device.clone()).expect("failed to create flora vertex shaders module");
+        let fs = flora_fs::Shader::load(device.clone()).expect("failed to create flora fragment shaders module");
 
         Self {
             textures: texture.clone(),
             chunks: Vec::new(),
-            grph_pipe: Cube::pipeline(
+            grph_pipe: FloraX::pipeline(
                 &vs, &fs, device.clone(),
                 render_pass.clone(), dimensions.into(),
             ),
@@ -90,20 +84,16 @@ impl Cube {
 
     // internal function for building pipeline
     fn pipeline(
-        vert: &cube_vs::Shader,
-        frag: &cube_fs::Shader,
+        vert: &flora_vs::Shader,
+        frag: &flora_fs::Shader,
         device: Arc<Device>,
         render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
         dimensions: Dimension<u32> )
         -> Arc<dyn GraphicsPipelineAbstract + Send + Sync> {
 
-        // specialization constants will not be used
-        // let spec_consts = cube_fs::SpecializationConstants {
-        //     TEXTURES: texture.texture_len() as u32
-        // };
-
+        // note: flora-x must not need to be culled because it will be viewed on both sides
         Arc::new(GraphicsPipeline::start()
-            .vertex_input_single_buffer::<<Cube as Mesh>::Vertex>()
+            .vertex_input_single_buffer::<<Self as Mesh>::Vertex>()
             .vertex_shader(vert.main_entry_point(), ())
             .triangle_list()
             .viewports_dynamic_scissors_irrelevant(1)
@@ -113,7 +103,6 @@ impl Cube {
                 depth_range: 0.0 .. 1.0,
             }))
             .fragment_shader(frag.main_entry_point(), ())
-            .cull_mode_front()  // face culling for optimization TODO: make it changeable
             .alpha_to_coverage_enabled()  // to enable transparency
             .depth_stencil_simple_depth()  // to enable depth buffering
             .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
@@ -121,7 +110,7 @@ impl Cube {
         )
     }
 
-    fn mesh_data(chunk_list: Vec<(ChunkID, bool, Vec<CubeVert>, Vec<u32>)>, chunks: Arc<Vec<Chunk>>, chunk: Chunk) -> ThreadPoolOutput {
+    fn mesh_data(chunk_list: Vec<(ChunkID, bool, Vec<FloraVert>, Vec<u32>)>, chunks: Arc<Vec<Chunk>>, chunk: Chunk) -> ThreadPoolOutput {
         let find_chunk = |cid: ChunkID| -> Option<&Chunk> {
             // don't parallelize this iterator: as this closure gets executed few thousands time,
             // the overhead of even threadpool can largely affect negatively
@@ -179,24 +168,6 @@ impl Cube {
 
         let main_chunk = chunk.clone();
 
-        // the coordinates of get_chunk(); coords relative to the main Chunk
-        let get_chunk = |x, y, z| {
-            for (cid, _cull, _v, _i) in &merge_chunks {
-                if let Some(c_chunk) = &find_chunk(*cid) {
-                    let offset = Position::new(
-                        c_chunk.position.x - main_chunk.position.x,
-                        c_chunk.position.y - main_chunk.position.y,
-                        c_chunk.position.z - main_chunk.position.z,
-                    );
-
-                    if Position::new(x, y, z) == offset {
-                        return Some(c_chunk.clone());
-                    }
-                }
-            }
-            return None;
-        };
-
         // println!("Current chunk position: {:?}", chunk.position);
         // println!("Adjacent chunks found: {:?}", merge_chunks.iter().map(|x| &find_chunk(&x.0).unwrap().position).collect::<Vec<_>>());
 
@@ -219,127 +190,52 @@ impl Cube {
                         0 -- 2
                      */
 
-                    if let MeshType::Cube {top, bottom, left, right, front, back} = &block.mesh {
-                        let mut faces = 0;
+                    if let MeshType::FloraX {positive, negative} = &block.mesh {
+                        // positive face
+                        /*
+                        |\--|
+                        | \ |
+                        |__\|
+                         */
+                        vertices.push(FloraVert { pos: [ 1.1+x.inner(),-0.1+y.inner(), 0.0+z.inner()], txtr: 1 | (positive.0 << 16)});
+                        vertices.push(FloraVert { pos: [ 1.1+x.inner(), 1.1+y.inner(), 0.0+z.inner()], txtr: 0 | (positive.0 << 16)});
+                        vertices.push(FloraVert { pos: [ 0.0+x.inner(), 1.1+y.inner(), 1.1+z.inner()], txtr: 2 | (positive.0 << 16)});
+                        vertices.push(FloraVert { pos: [ 0.0+x.inner(),-0.1+y.inner(), 1.1+z.inner()], txtr: 3 | (positive.0 << 16)});
 
-                        // if if (1st: checks chunk border) {2nd: checks for nearby transparent world.block across the chunk border} else {3rd: checks for nearby transparent world.block}
-                        if  if start.x == x {
-                            if let Some(c) = get_chunk(ChunkUnit(-1.0), ChunkUnit(0.0), ChunkUnit(0.0)) {
-                                c.blocks(BlockUnit(CHUNK_SIZE as f32-1.0), y, z).state.transparent && !block.state.transparent
-                            } else {
-                                false
-                            }
-                        } else {
-                            chunk.blocks(x.decr(), y, z).state.transparent && !block.state.transparent
-                        }
-                        {  // left face
-                            vertices.push(CubeVert { pos: [0.0+x.inner(),0.0+y.inner(),1.0+z.inner()], txtr: 1 | (12 << 2) | (left.0 << 16)});
-                            vertices.push(CubeVert { pos: [0.0+x.inner(),1.0+y.inner(),1.0+z.inner()], txtr: 0 | (12 << 2) | (left.0 << 16)});
-                            vertices.push(CubeVert { pos: [0.0+x.inner(),1.0+y.inner(),0.0+z.inner()], txtr: 2 | (12 << 2) | (left.0 << 16)});
-                            vertices.push(CubeVert { pos: [0.0+x.inner(),0.0+y.inner(),0.0+z.inner()], txtr: 3 | (12 << 2) | (left.0 << 16)});
-                            faces += 1;
-                        }
-                        if if start.y == y {
-                            if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(-1.0), ChunkUnit(0.0)) {
-                                c.blocks(x, BlockUnit(CHUNK_SIZE as f32-1.0), z).state.transparent && !block.state.transparent
-                            } else {
-                                false
-                            }
-                        } else {
-                            chunk.blocks(x, y.decr(), z).state.transparent && !block.state.transparent
-                        }
-                        {  // bottom face
-                            vertices.push(CubeVert { pos: [0.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 0 | (8 << 2) | (bottom.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 2 | (8 << 2) | (bottom.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 1.0+z.inner()], txtr: 3 | (8 << 2) | (bottom.0 << 16)});
-                            vertices.push(CubeVert { pos: [0.0+x.inner(), 0.0+y.inner(), 1.0+z.inner()], txtr: 1 | (8 << 2) | (bottom.0 << 16)});
-                            faces += 1;
-                        }
-                        if if start.z == z {
-                            if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(0.0), ChunkUnit(-1.0)) {
-                                c.blocks(x, y, BlockUnit(CHUNK_SIZE as f32-1.0)).state.transparent && !block.state.transparent
-                            } else {
-                                false
-                            }
-                        } else {
-                            chunk.blocks(x, y, z.decr()).state.transparent && !block.state.transparent
-                        }
-                        {  // front face
-                            vertices.push(CubeVert { pos: [0.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 0 | (12 << 2) | (front.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 2 | (12 << 2) | (front.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 3 | (12 << 2) | (front.0 << 16)});
-                            vertices.push(CubeVert { pos: [0.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 1 | (12 << 2) | (front.0 << 16)});
-                            faces += 1;
-                        }
-                        if if end.x == x {
-                            if let Some(c) = get_chunk(ChunkUnit(1.0), ChunkUnit(0.0), ChunkUnit(0.0)) {
-                                c.blocks(BlockUnit(0.0), y, z).state.transparent && !block.state.transparent
-                            } else {
-                                false
-                            }
-                        } else {
-                            chunk.blocks(x.incr(), y, z).state.transparent && !block.state.transparent
-                        }
-                        {  // right face
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 0.0+z.inner()], txtr: 3 | (12 << 2) | (right.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 2 | (12 << 2) | (right.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 1.0+z.inner()], txtr: 0 | (12 << 2) | (right.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 0.0+y.inner(), 1.0+z.inner()], txtr: 1 | (12 << 2) | (right.0 << 16)});
-                            faces += 1;
-                        }
-                        if if end.y == y {
-                            if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(1.0), ChunkUnit(0.0)) {
-                                c.blocks(x, BlockUnit(0.0), z).state.transparent && !block.state.transparent
-                            } else {
-                                false
-                            }
-                        } else {
-                            chunk.blocks(x, y.incr(), z).state.transparent && !block.state.transparent
-                        }
-                        {  // top face
-                            vertices.push(CubeVert { pos: [0.0+x.inner(), 1.0+y.inner(), 1.0+z.inner()], txtr: 0 | (15 << 2) | (top.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 1.0+z.inner()], txtr: 1 | (15 << 2) | (top.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 3 | (15 << 2) | (top.0 << 16)});
-                            vertices.push(CubeVert { pos: [0.0+x.inner(), 1.0+y.inner(), 0.0+z.inner()], txtr: 2 | (15 << 2) | (top.0 << 16)});
-                            faces += 1;
-                        }
-                        if if end.z == z {
-                            if let Some(c) = get_chunk(ChunkUnit(0.0), ChunkUnit(0.0), ChunkUnit(1.0)) {
-                                c.blocks(x, y, BlockUnit(0.0)).state.transparent && !block.state.transparent
-                            } else {
-                                false
-                            }
-                        } else {
-                            chunk.blocks(x, y, z.incr()).state.transparent && !block.state.transparent
-                        }
-                        {  // back face
-                            vertices.push(CubeVert { pos: [0.0+x.inner(),0.0+y.inner(),1.0+z.inner()], txtr: 3 | (12 << 2) | (back.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(),0.0+y.inner(),1.0+z.inner()], txtr: 1 | (12 << 2) | (back.0 << 16)});
-                            vertices.push(CubeVert { pos: [1.0+x.inner(),1.0+y.inner(),1.0+z.inner()], txtr: 0 | (12 << 2) | (back.0 << 16)});
-                            vertices.push(CubeVert { pos: [0.0+x.inner(),1.0+y.inner(),1.0+z.inner()], txtr: 2 | (12 << 2) | (back.0 << 16)});
-                            faces += 1;
-                        }
+                        // negative face
+                        /*
+                        |--/|
+                        | / |
+                        |/__|
+                         */
+                        vertices.push(FloraVert { pos: [ 0.0+x.inner(),-0.1+y.inner(), 0.0+z.inner()], txtr: 1 | (negative.0 << 16)});
+                        vertices.push(FloraVert { pos: [ 0.0+x.inner(), 1.1+y.inner(), 0.0+z.inner()], txtr: 0 | (negative.0 << 16)});
+                        vertices.push(FloraVert { pos: [ 1.1+x.inner(), 1.1+y.inner(), 1.1+z.inner()], txtr: 2 | (negative.0 << 16)});
+                        vertices.push(FloraVert { pos: [ 1.1+x.inner(),-0.1+y.inner(), 1.1+z.inner()], txtr: 3 | (negative.0 << 16)});
 
                         if indices.is_empty() {
-                            if faces > 0 {
-                                indices.append(
-                                    &mut vec![
-                                        0, 1, 2,
-                                        0, 2, 3,
-                                    ]
-                                );
-                                faces -= 1;
-                            }
-                        }
-
-                        for _ in 0..faces {
+                            indices.append(
+                                &mut vec![
+                                    // first shape
+                                    0, 1, 2,  // 1st triangle
+                                    0, 2, 3,  // 2nd triangle
+                                    // second shape
+                                    4, 5, 6,
+                                    4, 6, 7,
+                                ]
+                            );
+                        } else {
                             let ofs = *indices.last().unwrap() as u32+1;  // offset
                             indices.append(
                                 &mut vec![
+                                    // first shape
                                     0+ofs, 1+ofs, 2+ofs,  // triangle 1
                                     0+ofs, 2+ofs, 3+ofs,  // triangle 2
+                                    // second shape
+                                    4+ofs, 5+ofs, 6+ofs,
+                                    4+ofs, 6+ofs, 7+ofs,
                                 ]
-                            )
+                            );
                         }
                     }
                 }
@@ -350,8 +246,8 @@ impl Cube {
     }
 }
 
-impl Mesh for Cube {
-    type Vertex = CubeVert;
+impl Mesh for FloraX {
+    type Vertex = FloraVert;
     type Index = u32;
 
     type PushConstants = ();
@@ -397,7 +293,7 @@ impl Mesh for Cube {
             // as long the self.chunks doesn't get changed in between, it should never panic
             let ind = self.chunks.iter().position(|c| c.0 == id).unwrap();
 
-            let mut vertices: &mut Vec<CubeVert> = (*vert).downcast_mut().unwrap();
+            let mut vertices: &mut Vec<FloraVert> = (*vert).downcast_mut().unwrap();
             let mut indices: &mut Vec<u32> = (*indx).downcast_mut().unwrap();
 
             // .2: vertex dt of that chunk; .3 index dt of that chunk
@@ -434,7 +330,7 @@ impl Mesh for Cube {
         let (proj, view, world) = player.camera.gen_mvp(dimensions);
 
         self.persp_buf = Some(self.persp_mat.next(
-            cube_vs::ty::MVP {proj: proj, view: view, world: world}
+            flora_vs::ty::MVP {proj: proj, view: view, world: world}
         ).unwrap());
 
         // TODO: frustum culling
@@ -457,12 +353,12 @@ impl Mesh for Cube {
                   rerender: bool,
                   chunk_event: Vec<ChunkEvents>,
     ) -> (
-            Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
-            DynamicState,  // dynamic state for display
-            Arc<CpuAccessibleBuffer<[Self::Vertex]>>,   // vertex buffer
-            Arc<CpuAccessibleBuffer<[Self::Index]>>,  // index buffer
-            Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
-            Self::PushConstants,   // push-down constants
+        Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
+        DynamicState,  // dynamic state for display
+        Arc<CpuAccessibleBuffer<[Self::Vertex]>>,   // vertex buffer
+        Arc<CpuAccessibleBuffer<[Self::Index]>>,  // index buffer
+        Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
+        Self::PushConstants,   // push-down constants
     ) {
         if !chunk_event.is_empty() {
             // println!("Mesh Rendering: Chunk Status ({:?})", chunk_event);

@@ -17,18 +17,19 @@ use crate::datatype::Dimension;
 use crate::world::texture::Texture;
 use crate::world::chunk_handler::{ChunkHandler, ChunkStatusInfo};
 use crate::event::types::ChunkEvents;
+use crate::world::block::registry::BlockRegistry;
 
 use vulkano::device::{Queue, Device};
-use vulkano::command_buffer::{AutoCommandBuffer, AutoCommandBufferBuilder};
+use vulkano::command_buffer::{AutoCommandBuffer, AutoCommandBufferBuilder, CommandBufferExecFuture};
 use vulkano::framebuffer::{RenderPassAbstract, FramebufferAbstract};
 use vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc;
-use vulkano::sync::GpuFuture;
+use vulkano::sync::{GpuFuture, NowFuture};
 
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 use std::time;
-use crate::world::block::registry::BlockRegistry;
+use std::mem;
 
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -84,6 +85,7 @@ pub struct World {
     // world structure and manager
     registry: Arc<BlockRegistry>,  // a globalized way to hold all in-game block instance
     texture: Texture,
+    texture_fut: Option<CommandBufferExecFuture<NowFuture, AutoCommandBuffer>>,
     player_ir: Player,  // player intermediate updates only 1 second instead of each frame instantaneously
     player_ir_signal: mpsc::Receiver<bool>,  // receives a signal whether to update the player state (not the player state for render)
 
@@ -104,16 +106,18 @@ impl World {
     ) -> Self {  // creates a new world
         println!("WORLD - INITIALIZED");
 
-        // TODO: textures: use macro expansion to automatically add the textures AT COMPILE TIME
-        // TODO: or implement somw ways to add textures at RUN TIME
         let mut texture = Texture::new(queue.clone());
 
-        texture.add(include_bytes!("../../resource/texture/blocks/air.png").to_vec(), "air");
-        texture.add(include_bytes!("../../resource/texture/blocks/grass_side.png").to_vec(), "grass_side");
-        texture.add(include_bytes!("../../resource/texture/blocks/grass_top.png").to_vec(), "grass_top");
-        texture.add(include_bytes!("../../resource/texture/blocks/dirt.png").to_vec(), "dirt");
-        texture.add(include_bytes!("../../resource/texture/blocks/sand.png").to_vec(), "sand");
-        texture.add(include_bytes!("../../resource/texture/blocks/stone.png").to_vec(), "stone");
+        texture.add_texture("resource/texture/blocks/air.png", "air");
+        texture.add_texture("resource/texture/blocks/grass_side.png", "grass_side");
+        texture.add_texture("resource/texture/blocks/grass_top.png", "grass_top");
+        texture.add_texture("resource/texture/blocks/dirt.png", "dirt");
+        texture.add_texture("resource/texture/blocks/sand.png", "sand");
+        texture.add_texture("resource/texture/blocks/stone.png", "stone");
+        texture.add_texture("resource/texture/blocks/grass_flora.png", "grass_flora");
+        texture.add_texture("resource/texture/blocks/flower.png", "flower");
+
+        let (txtr_dt, txtr_future) = texture.texture_future();
 
         let (inp_tx, inp_rx) = mpsc::channel();  // new chunk events/world state -> chunk handler channel
         let (out_tx, out_rx) = mpsc::channel();  // chunk handler -> render data/chunk statuses channel
@@ -121,7 +125,7 @@ impl World {
         ChunkHandler::new(
             device.clone(), queue.clone(),
             inp_rx, out_tx,
-            Meshes::new(device.clone(), &texture, renderpass.clone(), dimensions.clone()),
+            Meshes::new(device.clone(), txtr_dt.clone(), renderpass.clone(), dimensions.clone()),
             Terrain::new(24)
         ).instantiate();
 
@@ -147,6 +151,7 @@ impl World {
 
             registry: Arc::new(BlockRegistry::new(&texture)),
             texture: texture,
+            texture_fut: Some(txtr_future),
             player_ir: player.clone(),
             player_ir_signal: ply_sgn_rx,
 
@@ -158,16 +163,9 @@ impl World {
         }
     }
 
-    pub fn bind_texture(
-        &mut self,
-        mut gpu_future: Box<dyn GpuFuture>,
-    ) -> Box<dyn GpuFuture> {
-        let futures = self.texture.futures();
-
-        for fut in futures.into_iter() {
-            gpu_future = Box::new(gpu_future.join(fut)) as Box<dyn GpuFuture>;
-        }
-        gpu_future
+    pub fn bind_texture( &mut self, gpu_future: Box<dyn GpuFuture>, ) -> Box<dyn GpuFuture> {
+        let txtr_fut = mem::replace(&mut self.texture_fut, None);
+        Box::new(gpu_future.join(txtr_fut.expect("Texture future has already been taken"))) as Box<dyn GpuFuture>
     }
 
     // update function on SEPARATE UPDATE THREAD
@@ -257,6 +255,7 @@ impl World {
         cmd_builder
             .begin_render_pass(framebuffer.clone(), false, vec![[0.1, 0.3, 1.0, 1.0].into(), 1f32.into()]).unwrap()
             .draw_mesh(mesh_datas.cube.clone()).unwrap()
+            .draw_mesh(mesh_datas.flora_x.clone()).unwrap()
             .end_render_pass().unwrap();
 
         cmd_builder.build().unwrap()
