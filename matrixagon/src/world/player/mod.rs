@@ -13,7 +13,7 @@ pub mod camera;
 
 
 // chunk radius in chunk size
-pub const CHUNK_RADIUS: u32 = 3;
+pub const CHUNK_RADIUS: u32 = 2;
 // the radius of which the world.player can edit the world
 pub const EDIT_RADIUS: u32 = 10;
 

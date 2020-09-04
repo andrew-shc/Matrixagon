@@ -307,22 +307,27 @@ pub struct SectorUnit(pub f32);  // 1 SectorUnit = 16 ChunkUnit
 
 // BlockUnit, a.k.a wB (world Block unit)
 impl BlockUnit {
+    #[inline(always)]
     pub fn into_chunk(self) -> ChunkUnit {
         ChunkUnit(self.0 / 32f32)
     }
 
+    #[inline(always)]
     pub fn into_chunk_int(self) -> ChunkUnit {
         ChunkUnit((self.0 / 32f32).floor())
     }
 
+    #[inline(always)]
     pub fn into_sector(self) -> SectorUnit {
         SectorUnit(self.0 / 32f32 / 16f32)
     }
 
+    #[inline(always)]
     pub fn into_inner(self) -> f32 {
         self.0
     }
 
+    #[inline(always)]
     pub fn inner(&self) -> f32 {
         self.0
     }
@@ -354,18 +359,22 @@ impl LocalBU {
 
 // ChunkUnit, a.k.a wC (world Chunk unit)
 impl ChunkUnit {
+    #[inline(always)]
     pub fn into_block(self) -> BlockUnit {
         BlockUnit(self.0 * CHUNK_SIZE as f32)
     }
 
+    #[inline(always)]
     pub fn into_sector(self) -> SectorUnit {
         SectorUnit(self.0 / 16f32)
     }
 
+    #[inline(always)]
     pub fn into_inner(self) -> f32 {
         self.0
     }
 
+    #[inline(always)]
     pub fn inner(&self) -> f32 {
         self.0
     }
@@ -385,18 +394,22 @@ impl ChunkUnit {
 
 // SectorUnit, a.k.a wS (world Sector unit)
 impl SectorUnit {
+    #[inline(always)]
     pub fn into_chunk(self) -> ChunkUnit {
         ChunkUnit(self.0 * 16f32)
     }
 
+    #[inline(always)]
     pub fn into_block(self) -> BlockUnit {
         BlockUnit(self.0 * 16f32 * 32f32)
     }
 
+    #[inline(always)]
     pub fn into_inner(self) -> f32 {
         self.0
     }
 
+    #[inline(always)]
     pub fn inner(&self) -> f32 {
         self.0
     }
@@ -417,6 +430,7 @@ impl SectorUnit {
 impl Add for BlockUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
         Self(self.0 + rhs.0)
     }
@@ -425,6 +439,7 @@ impl Add for BlockUnit {
 impl Sub for BlockUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0)
     }
@@ -433,6 +448,7 @@ impl Sub for BlockUnit {
 impl Mul for BlockUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn mul(self, rhs: Self) -> Self::Output {
         Self(self.0 * rhs.0)
     }
@@ -441,6 +457,7 @@ impl Mul for BlockUnit {
 impl Div for BlockUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn div(self, rhs: Self) -> Self::Output {
         Self(self.0 / rhs.0)
     }
@@ -449,6 +466,7 @@ impl Div for BlockUnit {
 impl Neg for BlockUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn neg(self) -> Self::Output {
         Self(-self.0)
     }
@@ -457,6 +475,7 @@ impl Neg for BlockUnit {
 impl Add for LocalBU {
     type Output = Self;
 
+    #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
         Self(self.0 + rhs.0)
     }
@@ -465,6 +484,7 @@ impl Add for LocalBU {
 impl Sub for LocalBU {
     type Output = Self;
 
+    #[inline(always)]
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0)
     }
@@ -473,6 +493,7 @@ impl Sub for LocalBU {
 impl Mul for LocalBU {
     type Output = Self;
 
+    #[inline(always)]
     fn mul(self, rhs: Self) -> Self::Output {
         Self(self.0 * rhs.0)
     }
@@ -481,6 +502,7 @@ impl Mul for LocalBU {
 impl Div for LocalBU {
     type Output = Self;
 
+    #[inline(always)]
     fn div(self, rhs: Self) -> Self::Output {
         Self(self.0 / rhs.0)
     }
@@ -489,6 +511,7 @@ impl Div for LocalBU {
 impl Add for ChunkUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
         Self(self.0 + rhs.0)
     }
@@ -497,6 +520,7 @@ impl Add for ChunkUnit {
 impl Sub for ChunkUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0)
     }
@@ -505,6 +529,7 @@ impl Sub for ChunkUnit {
 impl Mul for ChunkUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn mul(self, rhs: Self) -> Self::Output {
         Self(self.0 * rhs.0)
     }
@@ -513,6 +538,7 @@ impl Mul for ChunkUnit {
 impl Div for ChunkUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn div(self, rhs: Self) -> Self::Output {
         Self(self.0 / rhs.0)
     }
@@ -521,6 +547,7 @@ impl Div for ChunkUnit {
 impl Neg for ChunkUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn neg(self) -> Self::Output {
         Self(-self.0)
     }
@@ -529,6 +556,7 @@ impl Neg for ChunkUnit {
 impl Add for SectorUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
         Self(self.0 + rhs.0)
     }
@@ -537,6 +565,7 @@ impl Add for SectorUnit {
 impl Sub for SectorUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0)
     }
@@ -545,6 +574,7 @@ impl Sub for SectorUnit {
 impl Mul for SectorUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn mul(self, rhs: Self) -> Self::Output {
         Self(self.0 * rhs.0)
     }
@@ -553,6 +583,7 @@ impl Mul for SectorUnit {
 impl Div for SectorUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn div(self, rhs: Self) -> Self::Output {
         Self(self.0 / rhs.0)
     }
@@ -561,24 +592,28 @@ impl Div for SectorUnit {
 impl Neg for SectorUnit {
     type Output = Self;
 
+    #[inline(always)]
     fn neg(self) -> Self::Output {
         Self(-self.0)
     }
 }
 
 impl From<BlockUnit> for f32 {
+    #[inline(always)]
     fn from(itm: BlockUnit) -> Self {
         itm.0
     }
 }
 
 impl From<BlockUnit> for i32 {
+    #[inline(always)]
     fn from(itm: BlockUnit) -> Self {
         itm.0.round() as i32
     }
 }
 
 impl From<BlockUnit> for usize {
+    #[inline(always)]
     fn from(itm: BlockUnit) -> Self {
         itm.0.round() as usize
     }
@@ -586,24 +621,28 @@ impl From<BlockUnit> for usize {
 
 
 impl From<LocalBU> for f32 {
+    #[inline(always)]
     fn from(itm: LocalBU) -> Self {
         itm.0
     }
 }
 
 impl From<ChunkUnit> for f32 {
+    #[inline(always)]
     fn from(itm: ChunkUnit) -> Self {
         itm.0
     }
 }
 
 impl From<ChunkUnit> for i64 {
+    #[inline(always)]
     fn from(itm: ChunkUnit) -> Self {
         itm.0 as i64
     }
 }
 
 impl From<SectorUnit> for f32 {
+    #[inline(always)]
     fn from(itm: SectorUnit) -> Self {
         itm.0
     }

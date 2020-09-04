@@ -53,6 +53,7 @@ pub struct ChunkThreadPool {
     channels: Vec<(ChunkID, Receiver<ThreadPoolOutput>)>,
 }
 
+// TODO: Also handle cancel request for chunkloading
 impl ChunkThreadPool {
     pub fn new(num: usize) -> Self {
         let threadpool = ThreadPoolBuilder::new()

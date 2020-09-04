@@ -2,6 +2,7 @@ pub mod mesh;
 pub mod terrain;
 pub mod player;
 pub mod block;
+pub mod commands;
 
 pub mod shader;
 pub mod chunk;
@@ -16,8 +17,10 @@ use crate::world::mesh::{Meshes, MeshesExt, MeshesDataType};
 use crate::datatype::Dimension;
 use crate::world::texture::Texture;
 use crate::world::chunk_handler::{ChunkHandler, ChunkStatusInfo};
-use crate::event::types::ChunkEvents;
+use crate::event::types::{ChunkEvents, WorldEvents};
 use crate::world::block::registry::BlockRegistry;
+use crate::event::EventQueue;
+use crate::world::commands::WorldCommandExecutor;
 
 use vulkano::device::{Queue, Device};
 use vulkano::command_buffer::{AutoCommandBuffer, AutoCommandBufferBuilder, CommandBufferExecFuture};
@@ -34,6 +37,13 @@ use std::mem;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct ChunkID(pub u32);
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum ChunkUpdateState {
+    Consistent,  // the result is similar enough to not needed to be update
+    Update,  // the result is different enough that it needs to be updated
+    Immediate,  // the result must immediately send to chunk handler to be updated
+}
 
 // World State Update struct
 // This strut is used to format the required states from the world to generate a World Mesh Data
@@ -69,20 +79,28 @@ impl WorldStateUpd {
 
     // returns a bool on whether it should discards the new state update if most of the field remains
     // same as the state passed in through the argument
-    // TRUE: If the state are similar; discard
-    // FALSE: If the state are different; do not discard
-    fn discard_update(&self, state: &WorldStateUpd) -> bool {
-        self.player == state.player && self.dimensions == state.dimensions && self.rerender == state.rerender
+    fn update(&self, state: &WorldStateUpd) -> ChunkUpdateState {
+        if self.dimensions != state.dimensions {
+            ChunkUpdateState::Immediate
+        } else if
+            self.player != state.player ||
+            self.dimensions != state.dimensions ||
+            self.rerender != state.rerender {
+            ChunkUpdateState::Update
+        } else {
+            ChunkUpdateState::Consistent
+        }
     }
 }
 
 pub struct World {
     // world entities/components
+    // TODO: This can privatized once the world events has been fully added
     pub player: Player,
-
-    // world.weather:
+    command: WorldCommandExecutor,
 
     // world structure and manager
+    pub event: EventQueue<WorldEvents>,
     registry: Arc<BlockRegistry>,  // a globalized way to hold all in-game block instance
     texture: Texture,
     texture_fut: Option<CommandBufferExecFuture<NowFuture, AutoCommandBuffer>>,
@@ -124,7 +142,7 @@ impl World {
 
         ChunkHandler::new(
             device.clone(), queue.clone(),
-            inp_rx, out_tx,
+            inp_rx, out_tx, inp_tx.clone(),
             Meshes::new(device.clone(), txtr_dt.clone(), renderpass.clone(), dimensions.clone()),
             Terrain::new(24)
         ).instantiate();
@@ -146,9 +164,14 @@ impl World {
             }
         });
 
+        let mut cmd = WorldCommandExecutor::new();
+        cmd.load_file_bytc("resource/commands/test00.wcb".into());
+
         Self {
             player: player.clone(),
+            command: cmd,
 
+            event: EventQueue::new(),
             registry: Arc::new(BlockRegistry::new(&texture)),
             texture: texture,
             texture_fut: Some(txtr_future),
@@ -169,11 +192,12 @@ impl World {
     }
 
     // update function on SEPARATE UPDATE THREAD
-    pub fn update(&mut self, dimensions: Dimension<u32>,
+    pub fn update(&mut self, dimensions: Dimension<u32>, events: Vec<WorldEvents>,
                   renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
                   framebuffer: Arc<dyn FramebufferAbstract + Send + Sync>,
                   rerender: bool,) {
         // println!("WORLD - UPDATE");
+        self.event.merge_events(events);
 
         if let Ok(_) = self.player_ir_signal.try_recv() {
             self.player_ir = self.player.clone();
@@ -191,9 +215,10 @@ impl World {
 
         if let Some(state) = &self.world_state {
             let new_state = WorldStateUpd::from_world(self.player_ir.clone(), self.registry.clone(), dimensions, renderpass.clone(), framebuffer.clone(), rerender);
-            if !chunk_events.is_empty() || !state.discard_update(&new_state){
+            let update_state = state.update(&new_state);
+            if !chunk_events.is_empty() || update_state != ChunkUpdateState::Consistent {
                 let send = self.chunk_chan_inp_tx.send(
-                    (chunk_events, new_state.clone())
+                    (chunk_events, new_state.clone(), update_state)
                 );
                 if let Err(e) = send {
                     println!("[WORLD] Send Error: {:?}", e);
@@ -205,7 +230,7 @@ impl World {
             let new_state = WorldStateUpd::from_world(self.player_ir.clone(), self.registry.clone(), dimensions, renderpass.clone(), framebuffer.clone(), rerender);
 
             let send = self.chunk_chan_inp_tx.send(
-                (chunk_events, new_state.clone())
+                (chunk_events, new_state.clone(), ChunkUpdateState::Immediate)
             );
             if let Err(e) = send {
                 println!("[WORLD] Initial Send Error: {:?}", e);

@@ -1,0 +1,53 @@
+; === World Command Bytecode ===
+; Its a stack-based and register-based instruction
+       ; absurd testing A
+
+NAMESPACE			:MTXG-CMD
+NAMESPACE			:Matrixagon
+NAMSEPACE           :MTXG-EVENT
+
+; abusurd testing B
+; NAMESPACE"oh no"
+
+; This command wont be used by the teleport command since the command only takes in 4 arguments
+PUSH                "A string value"
+PUSH                43
+ADDI                15
+COUT
+
+PUSH                ";"  ; pushing a comment literal in a string?
+
+STATIC  $Hey_Semicolon      ";"
+
+PUSH                $Hey_Semicolon
+PUSH                -1.4  ; negative floats
+
+PUSH                10  ; maximum amount of loop
+PUSH                0  ; the for loop variable buffer
+
+MRK         #for_loop
+ADDI        1  ; adds 1 to the TOS, which is the for loop viriable buffer
+
+
+JMP_IF      #for_loop
+
+; To teleport a player relative of its position using the teleport command
+PUSH				:Matrixagon:world:player:main
+
+PUSH				10.4		; relative x-position
+PUSH				40.02		; relative y-position
+PUSH				-17		; relative z-position
+SUBI				:Matrixagon:world:player:main:pos:z 	; subtracts z from the player position to make it to absolute position
+; ROT3				; rotates the top 3 stack around
+ROT_THREE
+SUBI				:Matrixagon:world:player:main:pos:y
+; ROT3				; rotates the top 3 stack around
+ROT_THREE
+SUBI				:Matrixagon:world:player:main:pos:x
+; ROT3				; rotates the top 3 stack around
+ROT_THREE
+
+; Teleport command takes 4th values: the player ID, 3rd to 1st values: the new absolute position for that entity
+CMD_COPY			:MTXG-CMD:Teleport      ; CALL_COPY allows the 4 values remain on the stack
+CMD_MOVE			:MTXG-CMD:Teleport      ; This takes a total of 4 values from the top of the stack into the command to process
+CMD_COPY            :MTXG-CMD:Teleport      ; since the previous call used a move, this command will either work improperly or raise an exception

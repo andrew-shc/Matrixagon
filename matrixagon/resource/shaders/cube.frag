@@ -23,5 +23,5 @@ void main() {
     0 -- 2
     */
 
-    f_color = texture(txtr, vec3(pass_txtr, pass_ind)) * vec4(float(pass_light)/16., float(pass_light)/16., float(pass_light)/16., 1.0);
+    f_color = texture(txtr, vec3(pass_txtr, pass_ind)) * vec4(float(pass_light)/15., float(pass_light)/15., float(pass_light)/15., 1.0);
 }

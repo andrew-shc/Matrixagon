@@ -12,6 +12,7 @@ use winit::dpi::{Position, PhysicalPosition, PhysicalSize};
 
 use crate::app::MainApp;
 use crate::datatype::CamDirection;
+use crate::event::types::WorldEvents;
 
 mod ui;
 mod world;
@@ -98,6 +99,8 @@ fn main() {
     let mut cmd_mode = false;
     let mut focused = true;
     let mut minimized = false;
+
+    let mut world_events: Vec<WorldEvents> = Vec::new();
 
     event_loop.run( move |event, _, control_flow| {
         dimensions = surface.window().inner_size().into();
@@ -212,7 +215,7 @@ fn main() {
             },
             Event::RedrawEventsCleared => {
                 if !minimized {
-                    app.update(dimensions);
+                    app.update(dimensions, world_events.clone());
                 }
             },
             _ => {},

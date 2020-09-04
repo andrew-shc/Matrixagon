@@ -1,4 +1,4 @@
-# TheEndlessWorld
+# Matrixagon
 A game heavily-inspired by the terrain generation of Minecraft and other Minecraft
 mods using Rust's Vulkan Wrapper (Vulkano) to construct the game.
 
@@ -7,24 +7,20 @@ mods using Rust's Vulkan Wrapper (Vulkano) to construct the game.
 
 ### General
 This game is a block-based game similiar to Minecraft, but prioritize on block 
-simulation but with added minimal gameplay. But when we say minimal gameplay, it 
-means there are no crafting, enchanting, and alike. Though there are inventory
-systems and player effects.
+simulation but with added minimal gameplay.
 
 It specializes in realistic and fantastical terrain generation, weather systems,
 machine learning entities, and other components. And hopefully a total modularized
 systems with everything customizable from player commands to internal render meshes.
 
-And please do consider this as a game, and not a serious simulation.
-
 ### Development Status
 This game is still heavily in development. Check [CHANGELOG](CHANGELOG.md) for future plans
 
-Also, please do check this weekly. We'll be updating the game weekly at minimum.
+The game will try to update weekly as possible.
 
 ### Installing and Running
-This project will not be compiled to binaries as of yet. Though you can compile
-the source on your OS to run the program.
+This project will not be compiled to binaries as of yet. Though compiling the source
+code is always avaiable as the codebase is open-sourced right here!
 
 NOTE: The following procedure assumes you are on a OS (that also supports Vulkan API).
 

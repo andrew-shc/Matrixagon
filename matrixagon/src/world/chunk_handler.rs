@@ -1,20 +1,22 @@
 use crate::world::chunk::Chunk;
-use crate::event::{EventQueue, types::ChunkEvents};
-use crate::world::WorldStateUpd;
+use crate::event::{EventQueue, types::ChunkEvents, ControlFlow};
+use crate::world::{WorldStateUpd, ChunkUpdateState};
 use crate::world::ChunkID;
 use crate::datatype::{Position, ChunkUnit};
 use crate::world::player::CHUNK_RADIUS;
 use crate::world::chunk::{ChunkError, CHUNK_SIZE};
 use crate::world::terrain::Terrain;
 use crate::world::mesh::{MeshesStructType, MeshesDataType};
+use crate::world::chunk_threadpool::ChunkThreadPool;
 
 use vulkano::device::{Device, Queue};
 
 use std::sync::{mpsc, Arc};
+use std::time::Duration;
 use std::thread;
-use crate::world::chunk_threadpool::ChunkThreadPool;
+use std::thread::JoinHandle;
 
-pub type ThreadInput = (Vec<ChunkEvents>, WorldStateUpd);
+pub type ThreadInput = (Vec<ChunkEvents>, WorldStateUpd, ChunkUpdateState);
 pub type ThreadOutput<'b> = (MeshesDataType<'static>, ChunkStatusInfo);
 
 
@@ -49,18 +51,24 @@ pub struct ChunkHandler {
     meshes: MeshesStructType,  // world meshes
     terrain: Terrain,  // terrain of the world
 
+    timer_counter: JoinHandle<()>,  // timer to prevent the event executing too long
+    timer_channel: mpsc::Receiver<bool>,
+
     cid_counter: u32,  // chunk id counter
     chunk_threadpool: ChunkThreadPool,
 
     // channels
     chunk_chan_inp_rx: mpsc::Receiver<ThreadInput>,  // chunk thread input receiving channel
     chunk_chan_out_tx: mpsc::Sender<ThreadOutput<'static>>,  // chunk thread output sending channel
+    chunk_chan_inp_tx: mpsc::Sender<ThreadInput>,  // uses the sender to transfer the result from "peeking" in the result
 }
 
 impl ChunkHandler {
     pub fn new(device: Arc<Device>, queue: Arc<Queue>,
-               inp_rx: mpsc::Receiver<ThreadInput>, out_tx: mpsc::Sender<ThreadOutput>,
+               inp_rx: mpsc::Receiver<ThreadInput>, out_tx: mpsc::Sender<ThreadOutput>, inp_tx: mpsc::Sender<ThreadInput>,
                meshes: MeshesStructType, terrain: Terrain) -> Self {
+        let (timer_tx, timer_rx) = mpsc::channel();
+
         Self {
             device: device.clone(),
             queue: queue.clone(),
@@ -70,6 +78,18 @@ impl ChunkHandler {
             meshes: meshes,
             terrain: terrain,
 
+            timer_counter: thread::spawn(move || {
+                loop {
+                    let res = timer_tx.send(true);
+                    if let Err(e) = res {
+                        println!("Timer of chunk handler has the sender returned an error");
+                        break;
+                    }
+                    thread::sleep(Duration::from_secs(2));
+                }
+            }),
+            timer_channel: timer_rx,
+
             cid_counter: 0,
             // high number: faster chunk generation but laggier across the whole computer
             // low number: slower chunk generation (maybe even stack overflow) but smoother across the whole computer
@@ -77,6 +97,7 @@ impl ChunkHandler {
 
             chunk_chan_inp_rx: inp_rx,
             chunk_chan_out_tx: out_tx,
+            chunk_chan_inp_tx: inp_tx,
         }
     }
 
@@ -88,9 +109,11 @@ impl ChunkHandler {
             loop {
                 match self.chunk_chan_inp_rx.try_recv() {
                     Ok(buf) => {
+                        println!("Res filled");
                         self.update(buf.0, buf.1);
                     },
                     Err(mpsc::TryRecvError::Empty) => {
+                        // println!("Res empty");
                         continue;
                     },
                     Err(mpsc::TryRecvError::Disconnected) => {
@@ -130,8 +153,9 @@ impl ChunkHandler {
                             ChunkUnit((chunk_pos.z+z) as f32),
                         );
 
-                        // The id grabber will automatically check for any dupe position
-                        if let Ok(_) = self.chunk_id(new_pos) {
+
+                        // checks for duplicated position before submitting an event
+                        if self.chunks.iter().all(|x| x.position != new_pos) {
                             events.push(ChunkEvents::LoadChunk(new_pos));
                         }
                     }
@@ -148,24 +172,40 @@ impl ChunkHandler {
             }
         }
 
-        // println!("[Chunk Thread] Events: {:?}", events);
+        println!("[Chunk Thread] Events: {:?}", events);
+
+        let mut event = self.event.clone();
+        event.merge_events(events.clone());
 
         // running through empty events does cost some computation times
-        if !events.is_empty() && self.event.event_count() == 0 {
-            // TODO: Maybe change the run_event closure, because returns error of multiple mutable ref to self
-            let mut event = self.event.clone();
+        if event.event_count() > 0 {
+            // TODO: add event interrupt to pause the event before rerunning
+            event.run_event(|e, c| {
+                // if let Ok(_) = self.timer_channel.try_recv() {
+                //     *c = ControlFlow::Halt;
+                // }
+                if let Ok(transf) = self.chunk_chan_inp_rx.try_recv() {
+                    if transf.2 == ChunkUpdateState::Immediate {
+                        self.chunk_chan_inp_rx.try_iter();  // cleans input buffer for the priority
+                        if let Err(e) = self.chunk_chan_inp_tx.send(transf) {
+                            println!("The chunk channel receiver peeker had failed to transfer the results to the chunk channel sender");
+                        }
+                        *c = ControlFlow::Halt;
+                        println!("Priority incoming!");
+                    }
+                }
 
-            event.merge_events(events.clone());
-            event.run_event(|e| {
+                // println!("EEEEEEEEEEEEE {:?}", e);
                 match e {
-                    // TODO: might need to change ChunkUnit to i128, to support "infinite" world.terrain generation
+                    // TODO: might need to change ChunkUnit to i128, to support more "infinite" world.terrain generation
                     // TODO: sometime later we need to deserialize/load chunk from save files
                     // creates/loads a new chunk at the `pos`
                     ChunkEvents::LoadChunk(pos) => {
-                        // Double checks for any dupe position, because it is very IMPORTANT that
-                        // there are no multiple chunks in the same exact position
-                        if let Ok(id) = self.chunk_id(pos) {
-                            let new_chunk = Chunk::new(id, pos, self.terrain.generate_chunk(state.registry.clone(), pos));
+                        // The id grabber will automatically check for any dupe position
+                        // println!("LDC - A");
+                        if let Ok(id) = self.chunk_id(*pos) {
+                            // println!("LDC - B");
+                            let new_chunk = Chunk::new(id, *pos, self.terrain.generate_chunk(state.registry.clone(), *pos));
                             self.meshes.add_chunk(new_chunk.id);
                             self.chunks.push(new_chunk);
                             chunk_loaded += 1;
@@ -173,10 +213,10 @@ impl ChunkHandler {
                     },
                     // removes/saves a chunk from the world
                     ChunkEvents::OffloadChunk(id) => {
-                        self.meshes.remv_chunk(id);
+                        self.meshes.remv_chunk(*id);
 
                         for ind in 0..self.chunks.len() {
-                            if self.chunks[ind].id == id {
+                            if self.chunks[ind].id == *id {
                                 self.chunks.swap_remove(ind);
                                 break;
                             }
@@ -194,9 +234,11 @@ impl ChunkHandler {
                     // the final event emitted
                     ChunkEvents::EventFinal => {
                         self.meshes.load_chunks(self.chunks.clone(), &mut self.chunk_threadpool);
-                    }
+                    },
+                    _ => {},
                 }
             });
+            self.event = event;
         }
 
         // TODO: will remove this later after the issue above is fixed

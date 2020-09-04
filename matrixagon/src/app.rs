@@ -19,11 +19,14 @@ use crate::ui::{App, Layout};
 use crate::ui::layout as lyt;
 use crate::datatype::Dimension;
 use crate::world::World;
+use crate::event::EventQueue;
+use crate::event::types::{AppEvents, WorldEvents};
 
 
 pub struct MainApp<L: Layout> {
     device: Arc<Device>,
     queue: Arc<Queue>,
+    event: EventQueue<AppEvents>,
 
     prev_frame: Option<Box<dyn GpuFuture>>,  // previous frame
     swapchain: Arc<Swapchain<Window>>,  // swapchain is used for "swapping" the chain of images rendered from the GPU
@@ -94,6 +97,7 @@ impl MainApp<lyt::StackLayout> {
         Self {
             device: device.clone(),
             queue: queue.clone(),
+            event: EventQueue::new(),
 
             prev_frame: future,
             swapchain: swapchain.clone(),
@@ -111,7 +115,7 @@ impl MainApp<lyt::StackLayout> {
     }
 
     // updates the app; the app also should automatically renders the screen
-    pub fn update(&mut self, dimensions: dt::Dimension<u32>) {
+    pub fn update(&mut self, dimensions: dt::Dimension<u32>, wrld_events: Vec<WorldEvents>) {
         // println!("APP - UPDATE");
 
         // cleans the previous buffer
@@ -145,7 +149,7 @@ impl MainApp<lyt::StackLayout> {
 
         if suboptimal { self.recreate = true; }
 
-        self.world.update(dimensions, self.renderpass.clone(),
+        self.world.update(dimensions, wrld_events, self.renderpass.clone(),
                           self.framebuffer[image_num].clone(), self.recreate
         );
 

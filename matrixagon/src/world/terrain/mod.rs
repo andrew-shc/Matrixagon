@@ -38,27 +38,27 @@ impl Terrain {
         let ground_level = 64i64;
 
         // the global chunk coordinate in blocks
-        let gx = chunk_pos.x.into_inner() as i64*CHUNK_SIZE as i64;
-        let gy = chunk_pos.y.into_inner() as i64*CHUNK_SIZE as i64;
-        let gz = chunk_pos.z.into_inner() as i64*CHUNK_SIZE as i64;
+        let gx = chunk_pos.x.into_block().inner().round() as i64;
+        let gy = chunk_pos.y.into_block().inner().round() as i64;
+        let gz = chunk_pos.z.into_block().inner().round() as i64;
 
-        let hmap = self.generate_heightmap(gx as isize, gy as isize, gz as isize);
+        let hmap = self.generate_heightmap(gx, gy, gz);
 
         let blocks = vec![0;CHUNK_BLOCKS].iter().enumerate().map(|i|i.0).map(|n| {
             // local world.block coordinates
-            let lx = ((n / (CHUNK_SIZE*CHUNK_SIZE)) % CHUNK_SIZE) as i64;
-            let ly = ((n / CHUNK_SIZE) % CHUNK_SIZE) as i64;
-            let lz = (n % CHUNK_SIZE) as i64;
+            let lx = ((n / (CHUNK_SIZE*CHUNK_SIZE)) & (CHUNK_SIZE-1));
+            let ly = ((n / CHUNK_SIZE) & (CHUNK_SIZE-1));
+            let lz = (n & (CHUNK_SIZE-1));
 
             // global world.block coordinates
-            let x = lx+gx;
-            let y = ly+gy;
-            let z = lz+gz;
+            let x = lx as i64+gx;
+            let y = ly as i64+gy;  // y should never be below 0
+            let z = lz as i64+gz;
 
             // 2D-3D: X to X, Y to Z, Z
-            let num = hmap[lx as usize][lz as usize] as i64;
+            let num = hmap[lx as usize][lz as usize] as i64 - 10;  // todo: conversion error on indexes when negative form i to u?
 
-            if ground_level-num+1 > y && y >= ground_level-num {
+            if ground_level+num+1 > y && y >= ground_level+num {
                 if self.random.rand_range(0..10) == 0 {
                     registry.block("grass".into())
                 } else if self.random.rand_range(0..50) == 0 {
@@ -66,19 +66,19 @@ impl Terrain {
                 } else {
                     registry.block("air".into())
                 }
-            } else if ground_level-num > y && y >= ground_level-num-1 {
-                if ground_level-num < ground_level {
+            } else if ground_level+num > y && y >= ground_level+num-1 {
+                if ground_level+num < ground_level {
                     registry.block("sand".into())
                 } else {
                     registry.block("grass_block".into())
                 }
-            } else if ground_level-num-1 > y && y >= ground_level-num-3 {
-                if ground_level-num < ground_level {
+            } else if ground_level+num-1 > y && y >= ground_level+num-3 {
+                if ground_level+num < ground_level {
                     registry.block("sand".into())
                 } else {
                     registry.block("dirt".into())
                 }
-            } else if y < ground_level-num-3 {
+            } else if y < ground_level+num-3 {
                 registry.block("stone".into())
             } else {
                 registry.block("air".into())
@@ -94,7 +94,30 @@ impl Terrain {
     }
 
     // TERRAIN GENERATION STAGE 1: Generating the basic heightmap
-    fn generate_heightmap(&mut self, gx: isize, gy: isize, gz: isize) -> [[i32; CHUNK_SIZE]; CHUNK_SIZE] {
+    fn generate_heightmap(&mut self, gx: i64, gy: i64, gz: i64) -> [[u32; CHUNK_SIZE]; CHUNK_SIZE] {
+        // let mut height_map = (0..CHUNK_SIZE*CHUNK_SIZE).enumerate().map(|i|i.0).map(|n| {
+        //     let x = (n as f32/CHUNK_SIZE as f32).floor() as isize;
+        //     let z = (n%CHUNK_SIZE) as isize;
+        //
+        //     // Favorite Math Noise: ((((gx+x as isize) as f32/3 as f32).sin()+((gz+z as isize) as f32/3 as f32).cos())*32.0) as i32;
+        //     // height_map[x][z] = ((((gx+x as isize) as f32/3 as f32).sin()+((gz+z as isize) as f32/3 as f32).cos())*32.0) as i32;
+        //
+        //     // let pn0 = self.perlin2d.perlin((gx as f64+x as f64)/100.0, (gz as f64+z as f64)/100.0);
+        //     // let pn1 = self.perlin2d.perlin((gx+x as isize) as f64/40.0, (gz+z as isize) as f64/40.0);
+        //     let pn2 = self.perlin2d.perlin((gx+x) as f64/10.0, (gz+z) as f64/10.0);
+        //
+        //     // try multiplication too
+        //     let octaves = pn2/15.0;
+        //
+        //     octaves.round() as i32
+        // }).collect::<Vec<_>>();
+        //
+        // let map;
+        // unsafe {
+        //     map = Box::from_raw(Box::into_raw(Box::new(height_map)) as *mut [i32; CHUNK_SIZE*CHUNK_SIZE])
+        // }
+        // *map
+
         let mut height_map = [[0; CHUNK_SIZE]; CHUNK_SIZE];
 
         for x in 0..CHUNK_SIZE {
@@ -104,12 +127,11 @@ impl Terrain {
 
                 // let pn0 = self.perlin2d.perlin((gx as f64+x as f64)/100.0, (gz as f64+z as f64)/100.0);
                 // let pn1 = self.perlin2d.perlin((gx+x as isize) as f64/40.0, (gz+z as isize) as f64/40.0);
-                let pn2 = self.perlin2d.perlin((gx+x as isize) as f64/10.0, (gz+z as isize) as f64/10.0);
+                let pn2 = self.perlin2d.perlin((gx+x as i64) as f64/10.0, (gz+z as i64) as f64/10.0);
 
                 // try multiplication too
-                let octaves = pn2/15.0;
-
-                height_map[x][z] = octaves.round() as i32;
+                let octaves = (pn2/15.0).round() + 16.0;
+                height_map[x][z] = if octaves >= 0.0 {octaves as u32} else {0u32};
             }
         }
 

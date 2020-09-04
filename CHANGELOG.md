@@ -24,6 +24,9 @@
     * Save loaded chunk datas to disk instead of memory
     * Using GPU to generate chunk datas
     * Thread #'s
+* Generate chunks in groups
+
+* Multithreading: Use minimal sub-system threads, and use worker threadpools
 
 * Faster chunk loading on the chunk thread
 * Render Optimization:
@@ -40,6 +43,27 @@
 * Add a terrain generation
 * Internal:
     * Add a global shared reference on block registry (Arc<T>)
+    
+### PLANNED v0.1.5 [Aug 30, 2020]
+* Chunk mesh generation improvement
+    * Using layers to lookup for any transparent blocks inside the chunk
+    * Only regenerate chunks that are next to newly generated chunks <-- me totally stupid
+        * Really did not improved chunk mesh speed
+* Added world event to organize code and easily manageable
+    * This helps for the command
+    * The event is still under several major changes coming
+* Added a World Command Bytecode
+    * Basically a language for manipulating the world
+    
+### v0.1.4 [Sept 3, 2020]
+* No changes to the frontend
+* Added a (unusable) World Command Bytecode Language
+    * planned to be executed and change the world
+* Re-organized the project repo for an upcoming separate crate
+    * This crate is the World Command Scripting Language
+    * Its where this language compiles down to this bytecode
+* Specification for the command bytecode will be released later this year
+* NOTE: This is taking longer than expected
     
 ### v0.1.3 [Aug 23, 2020] (The most fruitful update so far :D)
 * __Fixed__: Minimizing window crashes the app because of Dimension {0,0}
