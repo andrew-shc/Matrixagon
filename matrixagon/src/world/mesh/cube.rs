@@ -4,8 +4,8 @@ use crate::world::chunk::{Chunk, CHUNK_SIZE};
 use crate::world::shader::{CubeVert, cube_vs, cube_fs};
 use crate::world::ChunkID;
 use crate::world::block::Block;
-use crate::world::player::Player;
-use crate::event::types::ChunkEvents;
+use crate::world::chunk_threadpool::{ChunkThreadPool, ThreadPoolOutput};
+use crate::world::player::camera::Camera;
 
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::framebuffer::{Subpass, RenderPassAbstract};
@@ -25,8 +25,6 @@ use rayon::prelude::*;
 
 use std::sync::Arc;
 use std::iter;
-use std::marker::PhantomData;
-use crate::world::chunk_threadpool::{ChunkThreadPool, ThreadPoolOutput};
 
 
 pub enum Side {
@@ -45,6 +43,7 @@ pub struct Cube {
     // chunks: Chunk Reference, New Chunk, Chunk Culling, Chunk Vertices, Chunk Indices
     chunks: Vec<(ChunkID, bool, bool, Vec<<Self as Mesh>::Vertex>, Vec<<Self as Mesh>::Index>)>,
     grph_pipe: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+    dimensions: Dimension<u32>,  // current window dimensions
 
     vert_shd: cube_vs::Shader,
     frag_shd: cube_fs::Shader,
@@ -73,6 +72,7 @@ impl Cube {
                 &vs, &fs, device.clone(),
                 render_pass.clone(), dimensions.into(),
             ),
+            dimensions: dimensions,
 
             vert_shd: vs,
             frag_shd: fs,
@@ -378,7 +378,7 @@ impl Mesh for Cube {
     }
 
     fn load_chunks(&mut self, chunks: Vec<Chunk>, pool: &mut ChunkThreadPool) {
-        println!("Begin chunk loading");
+        println!("Begin chunk loading for cube mesh");
         let mut chunk_cloned = self.chunks.clone();
         let chunks = Arc::new(chunks);
         let new_chunks = self.chunks.iter().filter(|c|c.1 == true).collect::<Vec<_>>();
@@ -469,7 +469,7 @@ impl Mesh for Cube {
     }
 
     // TODO: Will probably be removed in future
-    // re-evaluates the vertex and index data buffer
+    // re-evaluates the vertex and index data buffer per chunk
     fn updt_chunks(&mut self, id: ChunkID) {
         unimplemented!()
     }
@@ -484,12 +484,18 @@ impl Mesh for Cube {
         }
     }
 
-    fn updt_world(&mut self, dimensions: Dimension<u32>, player: &Player) {
-        let (proj, view, world) = player.camera.gen_mvp(dimensions);
+    fn updt_world(&mut self, dimensions: Option<Dimension<u32>>, cam: Option<&Camera>) {
+        if let Some(new_dimn) = dimensions {
+            self.dimensions = new_dimn;
 
-        self.persp_buf = Some(self.persp_mat.next(
-            cube_vs::ty::MVP {proj: proj, view: view, world: world}
-        ).unwrap());
+            if let Some(new_cam) = cam {
+                let (proj, view, world) = new_cam.gen_mvp(self.dimensions);
+
+                self.persp_buf = Some(self.persp_mat.next(
+                    cube_vs::ty::MVP {proj: proj, view: view, world: world}
+                ).unwrap());
+            }
+        }
 
         // TODO: frustum culling
 
@@ -507,9 +513,8 @@ impl Mesh for Cube {
     fn render<'b>(&mut self,
                   device: Arc<Device>,
                   renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
-                  dimensions: Dimension<u32>,
                   rerender: bool,
-                  chunk_event: Vec<ChunkEvents>,
+                  reload_chunk: bool,
     ) -> (
             Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
             DynamicState,  // dynamic state for display
@@ -518,22 +523,14 @@ impl Mesh for Cube {
             Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
             Self::PushConstants,   // push-down constants
     ) {
-        if !chunk_event.is_empty() {
-            // println!("Mesh Rendering: Chunk Status ({:?})", chunk_event);
-        }
-
         if rerender {
             self.grph_pipe = Self::pipeline(
                 &self.vert_shd, &self.frag_shd,
-                device.clone(), renderpass.clone(), dimensions
+                device.clone(), renderpass.clone(), self.dimensions
             );
         }
 
-        if  self.vertices.is_empty() ||
-            self.indices.is_empty() ||
-            chunk_event.contains(&ChunkEvents::ReloadChunks) ||
-            chunk_event.iter().any(|e| if let ChunkEvents::LoadChunk(_) = e {true} else {false})
-        {
+        if self.vertices.is_empty() || self.indices.is_empty() || reload_chunk {
             self.vertices.clear();
             self.indices.clear();
 
@@ -564,7 +561,6 @@ impl Mesh for Cube {
             // println!("Index length: {:?}", self.indices.len());
         }
 
-        // TODO: Dynamically add new texture buffers
         let layout0 = self.grph_pipe.descriptor_set_layout(0).unwrap();
         let set0 = Arc::new(PersistentDescriptorSet::start(layout0.clone())
             .add_sampled_image(self.textures.clone(), self.sampler.clone()).unwrap()

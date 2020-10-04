@@ -27,6 +27,21 @@ pub struct Camera {
     pub trans_speed: f32,
 }
 
+impl Default for Camera {
+    // this is not to be used unless purely for the type of Camera itself; all following data are arbitrarily defined
+    fn default() -> Self {
+        Self {
+            position: Point3::from([0.0, 0.0, 0.0]),
+            rotation: Rotation::new(0.0,0.0,0.0),
+            fovy: 1.0,
+            rot_speed: 0.1,
+            trans_speed: 0.1,
+            zfar: 1000.0,
+            znear: 0.1,
+        }
+    }
+}
+
 impl Camera {
     pub fn new(rot_speed: f32, trans_speed: f32, position: Point3<f32>, rotation: Rotation<f32>) -> Self {
         Self {

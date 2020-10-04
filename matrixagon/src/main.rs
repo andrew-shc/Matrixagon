@@ -12,48 +12,19 @@ use winit::dpi::{Position, PhysicalPosition, PhysicalSize};
 
 use crate::app::MainApp;
 use crate::datatype::CamDirection;
-use crate::event::types::WorldEvents;
+use crate::event::EventDispatcher;
+use crate::event::types;
 
+#[macro_use]
+mod event;
 mod ui;
 mod world;
-mod event;
 
 mod app;
 mod datatype;
 mod math;
+mod util;
 
-/*
-Possible Names for Games:
-Borealis Exploris
-Aurora Borealis
-Tide Seeker
-Tidal Scouter
-Wandering Player
-Odyssey
-Infinite Perplexing World
-Perpetual Matrices of Geometry (PMG) <-----
-
-Subtitle: The Odyssey
-
-Borealis: The Perpetual Terrain of Blocks (BPTB) <-----
-
-Matrixism
-Matrixation
-Matricism
-Matrication
-Vectrix: Vector-Matrix
-Vertrix: Vertex-Matrix
-Matriksation
-Procedural Matrix
-ProcMatrix
-Procedural Block
-Laggy Matrix
-Laggy Cube
-Little Matrix
-
-Matrixagon <------ DEFN. YES
-Shortened as: Mtxg or MG
- */
 
 fn main() {
     // main setup
@@ -86,9 +57,11 @@ fn main() {
     // setting up for the program
     println!("PROGRAM - BEGIN MAIN PROGRAM");
 
+    let evd = EventDispatcher::new(types::global_enmtyp());
+
     // let mut textr: Texture<'static> = Texture::new(queue.clone());
     let mut app = MainApp::new(
-        device.clone(), queue.clone(),
+        device.clone(), queue.clone(), evd.clone(),
         surface.clone(), physical, dimensions
     );
 
@@ -100,18 +73,16 @@ fn main() {
     let mut focused = true;
     let mut minimized = false;
 
-    let mut world_events: Vec<WorldEvents> = Vec::new();
-
-    event_loop.run( move |event, _, control_flow| {
+    event_loop.run(move |event, _, control_flow| {
         dimensions = surface.window().inner_size().into();
         // println!("D {:?}", dimensions);
 
         match event {
             Event::WindowEvent { event, .. } => {
                 match event {
-                    WindowEvent::CloseRequested => {*control_flow = ControlFlow::Exit},
+                    WindowEvent::CloseRequested => { *control_flow = ControlFlow::Exit },
                     WindowEvent::Resized(size) => {
-                        let PhysicalSize {width, height} = size;
+                        let PhysicalSize { width, height } = size;
                         if width == 0 && height == 0 {
                             println!("Screen minimized");
                             minimized = true;
@@ -122,20 +93,20 @@ fn main() {
                             minimized = false;
                         }
                     },
-                    WindowEvent::KeyboardInput { input, ..} => {
+                    WindowEvent::KeyboardInput { input, .. } => {
                         if !minimized {
                             match input {
-                                KeyboardInput { virtual_keycode: key, state: ElementState::Pressed, ..} => {
+                                KeyboardInput { virtual_keycode: key, state: ElementState::Pressed, .. } => {
                                     if let Some(k) = key {
                                         match k {
-                                            K::Escape => {*control_flow = ControlFlow::Exit},
-                                            K::T => {cmd_mode = !cmd_mode},
-                                            K::A => { if !pressed.contains(&K::A) {pressed.push(K::A);} },
-                                            K::D => { if !pressed.contains(&K::D) {pressed.push(K::D);} },
-                                            K::W => { if !pressed.contains(&K::W) {pressed.push(K::W);} },
-                                            K::S => { if !pressed.contains(&K::D) {pressed.push(K::S);} },
-                                            K::LShift => { if !pressed.contains(&K::LShift) {pressed.push(K::LShift);} },
-                                            K::Space =>  { if !pressed.contains(&K::Space) {pressed.push(K::Space);} },
+                                            K::Escape => { *control_flow = ControlFlow::Exit },
+                                            K::T => { cmd_mode = !cmd_mode },
+                                            K::A => { if !pressed.contains(&K::A) { pressed.push(K::A); } },
+                                            K::D => { if !pressed.contains(&K::D) { pressed.push(K::D); } },
+                                            K::W => { if !pressed.contains(&K::W) { pressed.push(K::W); } },
+                                            K::S => { if !pressed.contains(&K::D) { pressed.push(K::S); } },
+                                            K::LShift => { if !pressed.contains(&K::LShift) { pressed.push(K::LShift); } },
+                                            K::Space => { if !pressed.contains(&K::Space) { pressed.push(K::Space); } },
                                             K::LControl => {
                                                 // TODO: Use the event system after App Event & World Event is added
                                                 app.world.player.camera.trans_speed = 0.25;
@@ -146,15 +117,15 @@ fn main() {
                                         println!("An invalid key registered. Please make sure you are only returning ASCII character");
                                     }
                                 },
-                                KeyboardInput { virtual_keycode: key, state: ElementState::Released, ..} => {
+                                KeyboardInput { virtual_keycode: key, state: ElementState::Released, .. } => {
                                     if let Some(key) = key {
                                         match key {
-                                            K::A => { if pressed.contains(&K::A) {pressed.retain(|i| i != &K::A);} },
-                                            K::D => { if pressed.contains(&K::D) {pressed.retain(|i| i != &K::D);} },
-                                            K::W => { if pressed.contains(&K::W) {pressed.retain(|i| i != &K::W);} },
-                                            K::S => { if pressed.contains(&K::S) {pressed.retain(|i| i != &K::S);} },
-                                            K::LShift => { if pressed.contains(&K::LShift) {pressed.retain(|i| i != &K::LShift);} },
-                                            K::Space => { if pressed.contains(&K::Space) {pressed.retain(|i| i != &K::Space);} },
+                                            K::A => { if pressed.contains(&K::A) { pressed.retain(|i| i != &K::A); } },
+                                            K::D => { if pressed.contains(&K::D) { pressed.retain(|i| i != &K::D); } },
+                                            K::W => { if pressed.contains(&K::W) { pressed.retain(|i| i != &K::W); } },
+                                            K::S => { if pressed.contains(&K::S) { pressed.retain(|i| i != &K::S); } },
+                                            K::LShift => { if pressed.contains(&K::LShift) { pressed.retain(|i| i != &K::LShift); } },
+                                            K::Space => { if pressed.contains(&K::Space) { pressed.retain(|i| i != &K::Space); } },
                                             K::LControl => {
                                                 app.world.player.camera.trans_speed = 0.1;
                                             },
@@ -164,7 +135,6 @@ fn main() {
                                 }
                             }
                         }
-
                     },
                     WindowEvent::MouseInput { state, button, .. } => {
                         if !cmd_mode {
@@ -176,7 +146,7 @@ fn main() {
                             // }
                         }
                     },
-                    WindowEvent::Focused( win_focused ) => {
+                    WindowEvent::Focused(win_focused) => {
                         focused = win_focused;
                     },
                     _ => {}
@@ -188,11 +158,11 @@ fn main() {
 
                     app.world.player.camera.rotate(delta.1 as f32, delta.0 as f32, 0.0);
 
-                    app.world.player.camera.rotate(delta.1 as f32, 0.0, 0.0);
-                    app.world.player.camera.rotate(0.0, delta.0 as f32, 0.0);
+                    // app.world.player.camera.rotate(delta.1 as f32, 0.0, 0.0);
+                    // app.world.player.camera.rotate(0.0, delta.0 as f32, 0.0);
 
                     let res = surface.window().set_cursor_position(
-                        Position::Physical(PhysicalPosition{ x: dimensions.width as i32/2, y: dimensions.height as i32/2 })
+                        Position::Physical(PhysicalPosition { x: dimensions.width as i32 / 2, y: dimensions.height as i32 / 2 })
                     );
                     if let Err(e) = res {
                         println!("Setting mouse position of the windows caused an error of {}", e);
@@ -204,21 +174,24 @@ fn main() {
             Event::MainEventsCleared => {
                 let mut directions = Vec::new();
 
-                if pressed.contains(&K::A) {directions.push(CamDirection::Leftward)}
-                if pressed.contains(&K::D) {directions.push(CamDirection::Rightward)}
-                if pressed.contains(&K::W) {directions.push(CamDirection::Forward)}
-                if pressed.contains(&K::S) {directions.push(CamDirection::Backward)}
-                if pressed.contains(&K::LShift) {directions.push(CamDirection::Downward)}
-                if pressed.contains(&K::Space)  {directions.push(CamDirection::Upward)}
+                if pressed.contains(&K::A) { directions.push(CamDirection::Leftward) }
+                if pressed.contains(&K::D) { directions.push(CamDirection::Rightward) }
+                if pressed.contains(&K::W) { directions.push(CamDirection::Forward) }
+                if pressed.contains(&K::S) { directions.push(CamDirection::Backward) }
+                if pressed.contains(&K::LShift) { directions.push(CamDirection::Downward) }
+                if pressed.contains(&K::Space) { directions.push(CamDirection::Upward) }
 
                 app.world.player.camera.travel(directions);
+
+                // event dispatcher to event_swap() after all the events has been finished
+                evd.clone().event_swap();
             },
             Event::RedrawEventsCleared => {
                 if !minimized {
-                    app.update(dimensions, world_events.clone());
+                    app.update(dimensions);
                 }
             },
             _ => {},
-        }
+        };
     });
 }

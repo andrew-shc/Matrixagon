@@ -13,18 +13,21 @@ mod noise;
 
 #[derive(Clone)]
 pub struct Terrain {
-    random: Rand64,
+    registry: Arc<BlockRegistry>,
 
+    random: Rand64,
     perlin2d: PerlinNoise2D,
 }
 
 impl Terrain {
-    pub fn new(seed: u128) -> Self {
+    pub fn new(seed: u128, block_reg: Arc<BlockRegistry>) -> Self {
         println!("TERRAIN - INITIALIZED");
 
         Self {
+            registry: block_reg.clone(),
+
             // Rand64 from oorandom is deterministic random number generator which is really REALLY useful
-            // in deterministic natueral world.terrain generation like this sandbox game. Which is why it must
+            // in deterministic natural terrain generation like this sandbox game. Which is why it must
             // be instanced once, or else it would return the same result for each new instance created.
             random: Rand64::new(seed),
 
@@ -32,7 +35,8 @@ impl Terrain {
         }
     }
 
-    pub fn generate_chunk(&mut self, registry: Arc<BlockRegistry>, chunk_pos: Position<ChunkUnit>) -> Box<[Block; CHUNK_BLOCKS]> {
+    // TODO: Make registry implement slicing
+    pub fn generate_chunk(&mut self, chunk_pos: Position<ChunkUnit>) -> Box<[Block; CHUNK_BLOCKS]> {
         // println!("Terrain size allocated: {:?} Blocks", CHUNK_BLOCKS);
 
         let ground_level = 64i64;
@@ -46,9 +50,9 @@ impl Terrain {
 
         let blocks = vec![0;CHUNK_BLOCKS].iter().enumerate().map(|i|i.0).map(|n| {
             // local world.block coordinates
-            let lx = ((n / (CHUNK_SIZE*CHUNK_SIZE)) & (CHUNK_SIZE-1));
-            let ly = ((n / CHUNK_SIZE) & (CHUNK_SIZE-1));
-            let lz = (n & (CHUNK_SIZE-1));
+            let lx = (n / (CHUNK_SIZE*CHUNK_SIZE)) & (CHUNK_SIZE-1);
+            let ly = (n / CHUNK_SIZE) & (CHUNK_SIZE-1);
+            let lz = n & (CHUNK_SIZE-1);
 
             // global world.block coordinates
             let x = lx as i64+gx;
@@ -60,29 +64,30 @@ impl Terrain {
 
             if ground_level+num+1 > y && y >= ground_level+num {
                 if self.random.rand_range(0..10) == 0 {
-                    registry.block("grass".into())
+                    self.registry["grass"]
                 } else if self.random.rand_range(0..50) == 0 {
-                    registry.block("flower".into())
+                    self.registry["flower"]
                 } else {
-                    registry.block("air".into())
+                    self.registry["air"]
                 }
             } else if ground_level+num > y && y >= ground_level+num-1 {
                 if ground_level+num < ground_level {
-                    registry.block("sand".into())
+                    self.registry["sand"]
                 } else {
-                    registry.block("grass_block".into())
+                    self.registry["grass_block"]
                 }
             } else if ground_level+num-1 > y && y >= ground_level+num-3 {
                 if ground_level+num < ground_level {
-                    registry.block("sand".into())
+                    self.registry["sand"]
                 } else {
-                    registry.block("dirt".into())
+                    self.registry["dirt"]
                 }
             } else if y < ground_level+num-3 {
-                registry.block("stone".into())
+                self.registry["stone"]
             } else {
-                registry.block("air".into())
+                self.registry["air"]
             }
+
         }).collect::<Vec<_>>().into_boxed_slice();
 
         // this converts the slice type to an actual statically defined length array

@@ -4,8 +4,6 @@ The World Command Executor
 A place where all the command bytecodes gets executed.
  */
 
-use std::fs;
-use std::path::Path;
 use std::char;
 
 pub mod bytecode;

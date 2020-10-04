@@ -166,8 +166,8 @@ impl Context {
 
 
 pub enum ObjType<W: Widget + ?Sized + 'static, L: Layout + ?Sized + 'static> {
-    Widget(&'static W),
-    Layout(&'static L),
+    Widget(Box<W>),
+   Layout(Box<L>),
 }
 
 pub trait Widget {

@@ -1,78 +1,181 @@
-use crate::event::{EventType, EventTransfer, EventQueue};
+use crate::event::EventName;
 use crate::world::ChunkID;
 use crate::datatype::{Position, ChunkUnit, Dimension};
-use std::any::Any;
+use crate::world::player::camera::Camera;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum ChunkEvents {
-    NewChunk(Position<ChunkUnit>),  // TODO: generates a new chunk to the world and meshes
-    LoadChunk(Position<ChunkUnit>),  // reads/generates a new chunk to the world and meshes
-    OffloadChunk(ChunkID),  // saves/discards the selected chunk from the world and meshes
-    ReloadChunks,  // reloads all the chunk, or basically reload all the world data
-    ReloadChunk(ChunkID),  // reloads a specific chunk
-    UpdateDimension(Dimension<u32>),  // updates chunk mesh's graphic pipeline display dimension
+use std::any::TypeId;
+use std::collections::HashMap;
 
-    EventFinal,  // emits when all the events has been consumed; or loaded by users if needed
-}
 
-impl EventType<ChunkEvents> for ChunkEvents {
-    fn final_event() -> ChunkEvents {
-        ChunkEvents::EventFinal
+// pub fn global_enm() -> Vec<EventName> {
+//     vec![
+//         EventName("MeshEvent/NewChunk"),
+//         EventName("MeshEvent/LoadChunk"),
+//         EventName("MeshEvent/OffloadChunk"),
+//         EventName("MeshEvent/ReloadChunks"),
+//         EventName("MeshEvent/ReloadChunk"),
+//         EventName("MeshEvent/UpdateMesh"),
+//         EventName("MeshEvent/UpdateDimensions"),
+//         EventName("MeshEvent/UpdateWorldStates"),
+//         EventName("WorldEvent/NewChunk"),
+//         EventName("WorldEvent/LoadChunk"),
+//         EventName("WorldEvent/OffloadChunk"),
+//         EventName("WorldEvent/ReloadChunks"),
+//         EventName("WorldEvent/ReloadChunk"),
+//         EventName("EventFinal"),
+//     ]
+// }
+//
+// // creates a hashmap of event nametypes for the EventInterchange
+// macro_rules! ename_insert {
+//     {$($key:literal => $val:ty,)*} => {
+//         let mut map = HashMap::new();
+//         $(map.insert(EventName($key), TypeId::of::<$val>());)*
+//         map
+//     }
+// }
+//
+// // returns the event nametypes for this voxel applications
+// pub fn global_enmtyp() -> HashMap<EventName, TypeId> {
+//     ename_insert! {
+//         "MeshEvent/NewChunk"            => Position<ChunkUnit>,
+//         "MeshEvent/LoadChunk"           => u32,
+//         "MeshEvent/OffloadChunk"        => ChunkID,
+//         "MeshEvent/ReloadChunks"        => (),
+//         "MeshEvent/ReloadChunk"         => ChunkID,
+//         "MeshEvent/UpdateMesh"          => (),
+//         "MeshEvent/UpdateDimensions"    => Dimension<u32>,
+//         "MeshEvent/UpdateWorldStates"   => Camera,
+//         "WorldEvent/NewChunk"           => Position<ChunkUnit>,
+//         "WorldEvent/LoadChunk"          => u32,
+//         "WorldEvent/OffloadChunk"       => ChunkID,
+//         "WorldEvent/ReloadChunks"       => (),
+//         "WorldEvent/ReloadChunk"        => ChunkID,
+//         "EventFinal"                    => (),
+//     }
+// }
+
+
+// creates a hashmap of event nametypes for the EventInterchange
+macro_rules! ename_insert {
+    {$($key:literal => [$($val:ty$(,)?)*],)*} => {
+        let mut map = HashMap::new();
+        $(map.insert(EventName($key), vec![$(TypeId::of::<$val>(),)*]);)*
+        map
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum WorldEvents {
-    PlayerPosUpdate(Position<f32>),
-
-    EventFinal,
-}
-
-impl EventType<WorldEvents> for WorldEvents {
-    fn final_event() -> WorldEvents {
-        WorldEvents::EventFinal
+// returns the event nametypes for this voxel applications
+pub fn global_enmtyp() -> HashMap<EventName, Vec<TypeId>> {
+    ename_insert! {
+        "MeshEvent/NewChunk"            => [Position<ChunkUnit>],
+        "MeshEvent/LoadChunk"           => [u32],
+        "MeshEvent/OffloadChunk"        => [ChunkID],
+        "MeshEvent/ReloadChunks"        => [],
+        "MeshEvent/ReloadChunk"         => [ChunkID],
+        "MeshEvent/UpdateMesh"          => [],
+        "MeshEvent/UpdateDimensions"    => [Dimension<u32>],
+        "MeshEvent/UpdateWorldStates"   => [Camera],
+        "WorldEvent/NewChunk"           => [Position<ChunkUnit>],
+        "WorldEvent/LoadChunk"          => [u32],
+        "WorldEvent/OffloadChunk"       => [ChunkID],
+        "WorldEvent/ReloadChunks"       => [],
+        "WorldEvent/ReloadChunk"        => [ChunkID],
+        "EventFinal"                    => [],
     }
 }
 
-impl EventTransfer<ChunkEvents> for EventQueue<WorldEvents> {
-    fn transfer_into(&mut self) -> Vec<ChunkEvents> {
-        unimplemented!()
-    }
+// pub struct ChunkData {
+//     pub pos: bool,
+// }
+//
+// impl Observer for ChunkData {
+//     fn event_name(&self) -> EventName {
+//         EventName("@TEST/Testing")
+//     }
+//
+//     fn receive(&mut self, mut evd: EventData) {
+//         self.pos = evd.pop::<bool>();
+//     }
+//
+//     fn retrieve_data(&self) -> EventData {
+//         let mut ed = EventData::new();
+//         ed.push(self.pos);
+//         ed.pack();
+//         ed
+//     }
+// }
 
-    fn transfer_copy(&self) -> Vec<ChunkEvents> {
-        unimplemented!()
-    }
+//
+// pub struct World {
+//     inner0: u32,
+//     obs_s: Vec<dyn Observer>,
+// }
+//
+// impl World {
+//     fn new() -> Self {
+//         Self {
+//             inner0: 0,
+//             obs_s: vec![0]
+//         }
+//     }
+// }
+//
+// pub trait Observer {
+//     // the event name you are observing to
+//     fn event_name() -> EventName;
+//     fn notify(&mut self, evd: EventData) -> EventName;
+//     fn retrieve_data(&self) -> EventData;
+// }
+//
+// pub struct ChunkData {
+//     pos: bool,
+// };
+//
+// impl Observer for ChunkData {
+//     fn event_name() -> EventName {
+//         EventName("@TEST/Testing")
+//     }
+//
+//     fn notify(&mut self, mut evd: EventData) {
+//         self.pos = evd.pop::<bool>();
+//     }
+//
+//     fn retrieve_data(&self) -> EventData {
+//         let mut ed = EventData::new();
+//         ed.push(self.pos);
+//         ed.pack();
+//         ed
+//     }
+// }
+//
 
-    fn transfer_except(&mut self) -> Vec<ChunkEvents> {
-        unimplemented!()
-    }
-}
+// struct EventDispatcherNEW {
+//     obs: Vec<Box<dyn Observer>>,
+// }
+//
+// impl EventDispatcherNEW {
+//     fn new() -> Self {
+//         Self {
+//             obs: Vec::new(),
+//         }
+//     }
+//
+//     fn emit(&self, en: EventName, mut ed: EventData) {
+//         ed.pack();
+//         let edd = Rc::new(RefCell::new(ed));
+//         for o in self.obs {
+//
+//             o.notify(ed.clone());
+//         }
+//     }
+//
+//     fn subscribe(&mut self, ob: impl Observer) {
+//         self.obs.push(ob)
+//     }
+// }
 
+/*
+{EventName: }
+ */
 
-// App events are also directly used by the UI system
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum AppEvents {
-    // Mouse pressed
-
-    EventFinal,
-}
-
-impl EventType<AppEvents> for AppEvents {
-    fn final_event() -> AppEvents {
-        AppEvents::EventFinal
-    }
-}
-
-impl EventTransfer<WorldEvents> for EventQueue<AppEvents> {
-    fn transfer_into(&mut self) -> Vec<WorldEvents> {
-        unimplemented!()
-    }
-
-    fn transfer_copy(&self) -> Vec<WorldEvents> {
-        unimplemented!()
-    }
-
-    fn transfer_except(&mut self) -> Vec<WorldEvents> {
-        unimplemented!()
-    }
-}

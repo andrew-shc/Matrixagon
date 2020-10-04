@@ -6,6 +6,10 @@
 * Fully-fledged weather system
 * A stack machine to hold the app state (e.g. main menus, options, ...)
 * Add update queues to synchronize the game
+* Three major backend components:
+    * Event system
+    * Global threadpool
+    * Frontend component states (struct)
 
 ### Unreleased (Generally ordered from top to bottom)
 - Added a world event system
@@ -43,14 +47,37 @@
 * Add a terrain generation
 * Internal:
     * Add a global shared reference on block registry (Arc<T>)
-    
-### PLANNED v0.1.5 [Aug 30, 2020]
-* Added world event to organize code and easily manageable
-    * This helps for the command
-    * The event is still under several major changes coming
-* Added a World Command Bytecode
-    * Basically a language for manipulating the world
-    
+
+### Future v0.1.6
+* A new separate interface for using commands
+    * An interface to modify world data, entities, and the game itself
+    * Uses the event systems
+* Using threadpools (for scalability performance) comapred to the original sub-system threading
+    - A global threadpool instantiated in the beginning
+    - Push a new worker task using fn/FnOnce closures to execute and complete the task
+    - Then either a choice after submission: 
+            - Awaiting all tasks to be completed; blocking main thread
+            - Await all tasks to be completed at a later time; postpone blocking main thread
+            - Notify/Check once all tasks are completed
+            - Cancel tasks
+            - Panic when a task has panicked
+     - Each task has a status of: Processing, Postponed, Idle
+     - And a action of: Submit (create a new task), Postpone, Cancel
+* The renderbuffer will be updated for each chunk rendered
+    * Unlike the previous version where we wait for a whole section to finish loading
+    * Gives a more performant point of view
+
+### v0.1.5 [Oct 4, 2020]
+* Added world event to organize code and easily manage events
+    * Event System:
+        - A globalized event systems with a queue of classified events
+        - Creates a new event bus
+        - Then have some way of emitting events to the bus to all the receivers
+        - Then the bus on the other subscribed to a (multiple) specific events gets executed
+* Command bytecodes are compiling properly
+* Removed sub-system threading yielding a slower performance temporarily for now
+    * Will be using threadpool in next version
+
 ### v0.1.4 [Sept 3, 2020]
 * Chunk mesh generation improvement
     * Using layers to lookup for any transparent blocks inside the chunk

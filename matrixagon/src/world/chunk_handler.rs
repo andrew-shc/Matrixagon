@@ -1,24 +1,23 @@
 use crate::world::chunk::Chunk;
-use crate::event::{EventQueue, types::ChunkEvents, ControlFlow};
-use crate::world::{WorldStateUpd, ChunkUpdateState};
+use crate::event::{EventDispatcher, EventName};
+use crate::world::WorldStateUpd;
 use crate::world::ChunkID;
-use crate::datatype::{Position, ChunkUnit};
+use crate::datatype::{Position, ChunkUnit, Dimension};
 use crate::world::player::CHUNK_RADIUS;
 use crate::world::chunk::{ChunkError, CHUNK_SIZE};
 use crate::world::terrain::Terrain;
 use crate::world::mesh::{MeshesStructType, MeshesDataType};
 use crate::world::chunk_threadpool::ChunkThreadPool;
+use crate::world::player::camera::Camera;
 
 use vulkano::device::{Device, Queue};
 
-use std::sync::{mpsc, Arc};
-use std::time::Duration;
-use std::thread;
-use std::thread::JoinHandle;
+use std::sync::Arc;
+use std::rc::Rc;
 
-pub type ThreadInput = (Vec<ChunkEvents>, WorldStateUpd, ChunkUpdateState);
-pub type ThreadOutput<'b> = (MeshesDataType<'static>, ChunkStatusInfo);
 
+pub type ThreadInput = WorldStateUpd;
+pub type ThreadOutput<'b> = (MeshesDataType, ChunkStatusInfo);
 
 #[derive(Clone, Debug)]
 pub struct ChunkStatusInfo {
@@ -46,100 +45,126 @@ pub struct ChunkHandler {
     device: Arc<Device>,
     queue: Arc<Queue>,
 
-    event: EventQueue<ChunkEvents>,  // event queue
+    event: Rc<EventDispatcher>,  // event queue
     chunks: Vec<Chunk>,  // vectors of chunks
     meshes: MeshesStructType,  // world meshes
     terrain: Terrain,  // terrain of the world
 
-    timer_counter: JoinHandle<()>,  // timer to prevent the event executing too long
-    timer_channel: mpsc::Receiver<bool>,
-
     cid_counter: u32,  // chunk id counter
     chunk_threadpool: ChunkThreadPool,
+    reload_chunks: bool,
 
-    // channels
-    chunk_chan_inp_rx: mpsc::Receiver<ThreadInput>,  // chunk thread input receiving channel
-    chunk_chan_out_tx: mpsc::Sender<ThreadOutput<'static>>,  // chunk thread output sending channel
-    chunk_chan_inp_tx: mpsc::Sender<ThreadInput>,  // uses the sender to transfer the result from "peeking" in the result
+    chunks_loaded: u32,
+    chunks_offloaded: u32,
 }
 
 impl ChunkHandler {
-    pub fn new(device: Arc<Device>, queue: Arc<Queue>,
-               inp_rx: mpsc::Receiver<ThreadInput>, out_tx: mpsc::Sender<ThreadOutput>, inp_tx: mpsc::Sender<ThreadInput>,
+    // creating a chunk handler requires you to communicate through mspc's
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>, evd: Rc<EventDispatcher>,
                meshes: MeshesStructType, terrain: Terrain) -> Self {
-        let (timer_tx, timer_rx) = mpsc::channel();
+        // chunk_obsv.subscribe(String::from("a"), a, a);
 
         Self {
             device: device.clone(),
             queue: queue.clone(),
 
-            event: EventQueue::new(),
+            event: evd.clone(),
             chunks: Vec::new(),
             meshes: meshes,
             terrain: terrain,
-
-            timer_counter: thread::spawn(move || {
-                loop {
-                    let res = timer_tx.send(true);
-                    if let Err(e) = res {
-                        println!("Timer of chunk handler has the sender returned an error");
-                        break;
-                    }
-                    thread::sleep(Duration::from_secs(2));
-                }
-            }),
-            timer_channel: timer_rx,
 
             cid_counter: 0,
             // high number: faster chunk generation but laggier across the whole computer
             // low number: slower chunk generation (maybe even stack overflow) but smoother across the whole computer
             chunk_threadpool: ChunkThreadPool::new(8),
+            reload_chunks: false,
 
-            chunk_chan_inp_rx: inp_rx,
-            chunk_chan_out_tx: out_tx,
-            chunk_chan_inp_tx: inp_tx,
-        }
-    }
-
-    // starts the update loop
-    pub fn instantiate(mut self) {
-        let thread_builder = thread::Builder::new()
-            .name("Chunk Handler".into());
-        let res = thread_builder.spawn( move || {
-            loop {
-                match self.chunk_chan_inp_rx.try_recv() {
-                    Ok(buf) => {
-                        println!("Res filled");
-                        self.update(buf.0, buf.1);
-                    },
-                    Err(mpsc::TryRecvError::Empty) => {
-                        // println!("Res empty");
-                        continue;
-                    },
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        break;
-                    },
-                }
-                // println!("[CHUNK THREAD] Recv results");
-
-                // thread::sleep(Duration::from_millis(10));
-            }
-        });
-        if let Err(e) = res {
-            println!("The 'Chunk Handler' thread has failed to spawn correctly: {}", e);
+            chunks_loaded: 0,
+            chunks_offloaded: 0,
         }
     }
 
     // updates every game tick, then returns the World Mesh Data
-    fn update(&mut self, mut events: Vec<ChunkEvents>, state: WorldStateUpd) {
+    pub fn update(&mut self, state: WorldStateUpd) -> (MeshesDataType, ChunkStatusInfo) {
+        /*
+        // once for receive_once();
+        event_receiver!(self.event){
+            "MeshEvent/NewChunk" => once |mut param| {
+
+            },
+            "OtherEvents" => |mut param| {
+
+            },
+        }
+        self.event.clone().receive_event()
+            .receive(EventName(), mut || {
+            })
+            .receive_once(name, closure)
+
+         */
+
+        self.event.clone().receive(EventName("MeshEvent/NewChunk"),  |mut param| {
+            let pos = param.pop::<Position<ChunkUnit>>();
+
+            if let Ok(id) = self.chunk_id(pos) {
+                let new_chunk = Chunk::new(id, pos, self.terrain.generate_chunk(pos));
+                self.meshes.add_chunk(new_chunk.id);
+                self.chunks.push(new_chunk);
+                self.chunks_loaded += 1;
+            }
+            self.reload_chunks = true;
+        });
+        self.event.clone().receive(EventName("MeshEvent/LoadChunk"), |mut param| {
+            let _ = param.pop::<u32>();
+            self.reload_chunks = true;
+        });
+        self.event.clone().receive(EventName("MeshEvent/OffloadChunk"), |mut param| {
+            let id = param.pop::<ChunkID>();
+
+            self.meshes.remv_chunk(id);
+
+            for ind in 0..self.chunks.len() {
+                if self.chunks[ind].id == id {
+                    self.chunks.swap_remove(ind);
+                    break;
+                }
+            }
+            self.chunks_offloaded += 1;
+            self.reload_chunks = true;
+        });
+        self.event.clone().receive(EventName("MeshEvent/ReloadChunks"), |mut param| {
+            self.reload_chunks = true;
+        });
+        self.event.clone().receive(EventName("MeshEvent/ReloadChunk"), |mut param| {
+            let _ = param.pop::<ChunkID>();
+
+            self.reload_chunks = true;
+        });
+        // Updates mesh with reloading all necessary chunks
+        self.event.clone().receive(EventName("MeshEvent/UpdateMesh"), |mut param| {
+            println!("begn");
+            self.meshes.load_chunks(self.chunks.clone(), &mut self.chunk_threadpool);
+            println!("endn");
+            self.reload_chunks = true;
+        });
+        self.event.clone().receive(EventName("MeshEvent/UpdateDimensions"), |mut param| {
+            let dimn = param.pop::<Dimension<u32>>();
+            self.meshes.update(Some(dimn), None);
+        });
+        self.event.clone().receive(EventName("MeshEvent/UpdateWorldStates"), |mut param| {
+            let cam = param.pop::<Camera>();
+
+            self.meshes.update(None, Some(&cam));
+        });
+
         let mut chunk_loaded = 0;
         let mut chunk_offloaded = 0;
 
         // world.player position in chunk position
         let chunk_pos: Position<i64> = Position::new(
-            (state.player.camera.position.coords.data[0] / CHUNK_SIZE as f32).floor() as i64,
-            (state.player.camera.position.coords.data[1] / CHUNK_SIZE as f32).floor() as i64,
-            (state.player.camera.position.coords.data[2] / CHUNK_SIZE as f32).floor() as i64,
+            (state.cam.position.coords.data[0] / CHUNK_SIZE as f32).floor() as i64,
+            (state.cam.position.coords.data[1] / CHUNK_SIZE as f32).floor() as i64,
+            (state.cam.position.coords.data[2] / CHUNK_SIZE as f32).floor() as i64,
         );
 
         for x in -(CHUNK_RADIUS as i64)..=CHUNK_RADIUS as i64 {
@@ -153,106 +178,46 @@ impl ChunkHandler {
                             ChunkUnit((chunk_pos.z+z) as f32),
                         );
 
-
                         // checks for duplicated position before submitting an event
                         if self.chunks.iter().all(|x| x.position != new_pos) {
-                            events.push(ChunkEvents::LoadChunk(new_pos));
-                        }
-                    }
-                }
-            }
-        }
-
-        for chunk in self.chunks.clone() {
-            if  chunk_pos.x-(CHUNK_RADIUS as i64) > i64::from(chunk.position.x) || chunk.position.x > ChunkUnit((chunk_pos.x+(CHUNK_RADIUS as i64)) as f32) &&
-                chunk_pos.y-(CHUNK_RADIUS as i64) > i64::from(chunk.position.y) || chunk.position.y > ChunkUnit((chunk_pos.y+(CHUNK_RADIUS as i64)) as f32) &&
-                chunk_pos.z-(CHUNK_RADIUS as i64) > i64::from(chunk.position.z) || chunk.position.z > ChunkUnit((chunk_pos.z+(CHUNK_RADIUS as i64)) as f32) {
-
-                events.push(ChunkEvents::OffloadChunk(chunk.id));
-            }
-        }
-
-        println!("[Chunk Thread] Events: {:?}", events);
-
-        let mut event = self.event.clone();
-        event.merge_events(events.clone());
-
-        // running through empty events does cost some computation times
-        if event.event_count() > 0 {
-            // TODO: add event interrupt to pause the event before rerunning
-            event.run_event(|e, c| {
-                // if let Ok(_) = self.timer_channel.try_recv() {
-                //     *c = ControlFlow::Halt;
-                // }
-                if let Ok(transf) = self.chunk_chan_inp_rx.try_recv() {
-                    if transf.2 == ChunkUpdateState::Immediate {
-                        self.chunk_chan_inp_rx.try_iter();  // cleans input buffer for the priority
-                        if let Err(e) = self.chunk_chan_inp_tx.send(transf) {
-                            println!("The chunk channel receiver peeker had failed to transfer the results to the chunk channel sender");
-                        }
-                        *c = ControlFlow::Halt;
-                        println!("Priority incoming!");
-                    }
-                }
-
-                // println!("EEEEEEEEEEEEE {:?}", e);
-                match e {
-                    // TODO: might need to change ChunkUnit to i128, to support more "infinite" world.terrain generation
-                    // TODO: sometime later we need to deserialize/load chunk from save files
-                    // creates/loads a new chunk at the `pos`
-                    ChunkEvents::LoadChunk(pos) => {
-                        // The id grabber will automatically check for any dupe position
-                        // println!("LDC - A");
-                        if let Ok(id) = self.chunk_id(*pos) {
-                            // println!("LDC - B");
-                            let new_chunk = Chunk::new(id, *pos, self.terrain.generate_chunk(state.registry.clone(), *pos));
-                            self.meshes.add_chunk(new_chunk.id);
-                            self.chunks.push(new_chunk);
+                            self.event.clone().emit(EventName("MeshEvent/NewChunk"), event_data![new_pos]);
                             chunk_loaded += 1;
                         }
-                    },
-                    // removes/saves a chunk from the world
-                    ChunkEvents::OffloadChunk(id) => {
-                        self.meshes.remv_chunk(*id);
-
-                        for ind in 0..self.chunks.len() {
-                            if self.chunks[ind].id == *id {
-                                self.chunks.swap_remove(ind);
-                                break;
-                            }
-                        }
-                        chunk_offloaded += 1;
-                    },
-                    // reloads all the chunk vertex data and index data
-                    ChunkEvents::ReloadChunks => {
-
-                    },
-                    // reloads a specific chunk (via ChunkID) vertex data and index data
-                    ChunkEvents::ReloadChunk(id) => {
-
-                    },
-                    // the final event emitted
-                    ChunkEvents::EventFinal => {
-                        self.meshes.load_chunks(self.chunks.clone(), &mut self.chunk_threadpool);
-                    },
-                    _ => {},
+                    }
                 }
-            });
-            self.event = event;
+            }
         }
 
-        // TODO: will remove this later after the issue above is fixed
+        // due to high numbers of chunk, there will be brutally optimized code here
+        // lower bound
+        let lb_x = ChunkUnit((chunk_pos.x-(CHUNK_RADIUS as i64)) as f32);
+        let lb_y = ChunkUnit((chunk_pos.y-(CHUNK_RADIUS as i64)) as f32);
+        let lb_z = ChunkUnit((chunk_pos.z-(CHUNK_RADIUS as i64)) as f32);
+        // upper bound
+        let ub_x = ChunkUnit((chunk_pos.x+(CHUNK_RADIUS as i64)) as f32);
+        let ub_y = ChunkUnit((chunk_pos.y+(CHUNK_RADIUS as i64)) as f32);
+        let ub_z = ChunkUnit((chunk_pos.z+(CHUNK_RADIUS as i64)) as f32);
 
-        self.meshes.update(state.dimensions, &state.player);
-
-        let mesh_datas = self.meshes.render(self.device.clone(), state.renderpass.clone(), state.dimensions, state.rerender, events);
-
-        let send = self.chunk_chan_out_tx.send(
-            (mesh_datas, ChunkStatusInfo::from_chunk_handler(&self, chunk_loaded, chunk_offloaded, 0))
-        );
-        if let Err(e) = send {
-            println!("[CHUNK THREAD] Send Error: {:?}", e);
+        for chunk in &self.chunks {
+            if  lb_x > chunk.position.x || chunk.position.x > ub_x &&
+                lb_y > chunk.position.y || chunk.position.y > ub_y &&
+                lb_z > chunk.position.z || chunk.position.z > ub_z {
+                self.event.clone().emit(EventName("MeshEvent/OffloadChunk"), event_data![chunk.id]);
+                chunk_offloaded += 1;
+            }
         }
+
+        if chunk_loaded > 0 || chunk_offloaded > 0 {
+            println!("L {:?} O {:?}", chunk_loaded, chunk_offloaded);
+            self.event.clone().emit(EventName("MeshEvent/UpdateMesh"), event_data![]);
+        }
+
+        // TODO: TEMPORARY: To be handled by events
+        self.meshes.update(Some(state.dimensions), Some(&state.cam));
+
+        // TODO: Calling this is really slow, once threadpool is completed, use threadpool
+        let mesh_datas = self.meshes.render(self.device.clone(), state.renderpass.clone(), state.rerender, self.reload_chunks);
+        (mesh_datas, ChunkStatusInfo::from_chunk_handler(&self, chunk_loaded, chunk_offloaded, 0))
     }
 
     fn chunk_id(&mut self, position: Position<ChunkUnit>) -> Result<ChunkID, ChunkError> {

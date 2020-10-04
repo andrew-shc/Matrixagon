@@ -87,9 +87,12 @@ pub (super) fn compile_file(fname: String) -> Result<Vec<Vec<Tokens>>, TokenErro
 
     let tokens = bytecode_tokenizer(char_stream);
 
+    println!("File compilation successfully converted bytecode file to tokens!");
+
     tokens
 }
 
+// TODO: when tokenizing, save each line's line number in Vec so we have an accurate repr of the line # as the tokenizer eliminates lines and to improve error correction
 // reads the file and returns a formatted tokens
 fn bytecode_tokenizer(char_stream: Vec<char>) -> Result<Vec<Vec<Tokens>>, TokenError> {
     let mut tkn_err: TokenErrorRes = Result::Ok(());
@@ -321,14 +324,14 @@ fn arguments_str_eval(arg_name: &str, cur_line_no: u32) -> Result<Arguments, Tok
 
     for c in arg_name.chars() {
         match c {
-            '$' => {  // static variable; globally defined
+            STATIC_VAR => {  // static variable; globally defined
                 if first_char {
                     interp_type = ConstValType::StaticVar;
                 } else {
                     return Err(TokenError::ArgumentValInvalidCharacters(cur_line_no, c));
                 }
             },
-            '#' => {  // marker tag; globally defined
+            MARKER => {  // marker tag; globally defined
                 if first_char {
                     interp_type = ConstValType::Marker;
                 } else {
@@ -357,7 +360,7 @@ fn arguments_str_eval(arg_name: &str, cur_line_no: u32) -> Result<Arguments, Tok
             },
             '.' => {  // additional floats
                 if first_char || interp_type == ConstValType::Int {
-                    // upgrades the integer to floats once it contains a dot '.'
+                    // upgrades the integer to floats once the tokenizer later finds it contains a dot '.' (decimal point)
                     interp_type = ConstValType::Float;
                 }
                 arg_str.last_mut().unwrap().push(c);
@@ -378,19 +381,20 @@ fn arguments_str_eval(arg_name: &str, cur_line_no: u32) -> Result<Arguments, Tok
 
     // Individual Arguments Value Parser
     // note: unwrapping for the first value of the arg_str is because there will always be a first value
-    let mut arg_val: Option<Arguments> = match interp_type {
+    let arg_val: Option<Arguments> = match interp_type {
         ConstValType::None => None,
         ConstValType::StaticVar => Some(Arguments::StaticVar(arg_str.first().unwrap().clone())),
         ConstValType::Marker => Some(Arguments::Marker(arg_str.first().unwrap().clone())),
         ConstValType::Namespace => Some(Arguments::Namespace(arg_str.clone())),
         ConstValType::Int => {
+            // parsing note: integer in the bytecode refers to isize, not usize
             // TODO: Handle big numbers?
             let val = arg_str.first().unwrap().clone();
-            match val.parse::<u64>() {
+            match val.parse::<i64>() {
                 Result::Ok(val) => {
                     Some(Arguments::Values(ValType::Int(val)))
                 },
-                Result::Err(e) => {
+                Result::Err(_e) => {
                     println!("Integer parser error: o-val: {:?}", val);
                     return Err(TokenError::InvalidNumber(cur_line_no));
                 },
@@ -403,7 +407,7 @@ fn arguments_str_eval(arg_name: &str, cur_line_no: u32) -> Result<Arguments, Tok
                 Result::Ok(val) => {
                     Some(Arguments::Values(ValType::Float(val)))
                 },
-                Result::Err(e) => {
+                Result::Err(_e) => {
                     println!("Float parser error: o-val: {:?}", val);
                     return Err(TokenError::InvalidDecimal(cur_line_no));
                 },
@@ -493,7 +497,7 @@ pub (super) enum Arguments {
 #[derive(Clone, PartialEq, Debug)]
 pub (super) enum ValType {
     Str(String), // String
-    Int(u64), // Integer
+    Int(i64), // Integer
     Float(f64), // Float
 }
 

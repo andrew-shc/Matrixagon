@@ -27,7 +27,7 @@ impl Player {
     pub fn new() -> Self {
         Self {
             camera: Camera::new(
-                0.002,
+                0.004,
                 0.1,
                 // to avoid the negative perlin noise for now
                 Point3::new(1000.0, 64.0, 1000.0),

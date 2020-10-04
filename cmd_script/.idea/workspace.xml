@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CargoProjects">
+    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="991234eb-1db6-491a-bae3-be2f59898900" name="Default Changelist" comment="">
+      <change afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../matrixagon/src/util.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../CHANGELOG.md" beforeDir="false" afterPath="$PROJECT_DIR$/../CHANGELOG.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/Cargo.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/resource/commands/test00.wcb" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/resource/commands/test00.wcb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/app.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/app.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/datatype.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/datatype.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/event/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/event/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/event/types.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/event/types.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/ui/layout/horiz_lyt.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/ui/layout/horiz_lyt.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/ui/layout/stack_lyt.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/ui/layout/stack_lyt.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/ui/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/ui/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/block/registry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/block/registry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/chunk.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/chunk.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/chunk_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/chunk_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/commands/bytecode.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/commands/bytecode.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/commands/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/commands/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/mesh/cube.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/mesh/cube.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/mesh/flora_x.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/mesh/flora_x.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/mesh/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/mesh/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/player/camera.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/player/camera.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/player/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/player/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/terrain/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/terrain/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../matrixagon/src/world/texture.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../matrixagon/src/world/texture.rs" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="DefaultGradleProjectSettings">
+    <option name="testRunner" value="GRADLE" />
+    <option name="delegatedBuild" value="true" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="7gljzqcm" />
+  </component>
+  <component name="ProjectId" id="1hIOcltXRWe1quaDBjONc9kiJyd" />
+  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">
+    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="org.rust.cargo.project.model.PROJECT_DISCOVERY" value="true" />
+  </component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+    <option name="version" value="2" />
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="991234eb-1db6-491a-bae3-be2f59898900" name="Default Changelist" comment="" />
+      <created>1599695221595</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1599695221595</updated>
+    </task>
+    <servers />
+  </component>
+</project>

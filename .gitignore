@@ -1,5 +1,5 @@
-matrixagon/target
-matrixagon/temp
+target/
+temp/
 
 /proto
 /.idea

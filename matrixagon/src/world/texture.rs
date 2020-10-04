@@ -6,9 +6,8 @@ use vulkano::sync::NowFuture;
 
 use std::sync::Arc;
 use std::io::Cursor;
-use std::collections::BTreeMap;
 use std::path::Path;
-use std::{mem, fs};
+use std::fs;
 
 use png;
 
@@ -93,7 +92,7 @@ impl Texture {
         };
 
         let mut all_textures = Vec::new();
-        for (dt, id) in self.textures.iter() {
+        for (dt, _id) in self.textures.iter() {
             all_textures.append(&mut dt.clone());
         }
 

@@ -4,7 +4,7 @@ use winit::event::Event;
 
 pub struct HorizontalLayout {
     position: dt::Position<f32>,
-    objects: Vec<&'static ObjType<dyn Widget, dyn Layout>>,
+    objects: Vec<ObjType<dyn Widget, dyn Layout>>,
 }
 
 impl HorizontalLayout {
@@ -16,7 +16,7 @@ impl HorizontalLayout {
     }
 }
 
-impl<'a> Widget for HorizontalLayout {
+impl Widget for HorizontalLayout {
     fn update(&mut self, e: &Event<()>) {
         unimplemented!()
     }

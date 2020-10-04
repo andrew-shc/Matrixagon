@@ -42,13 +42,13 @@ pub enum Direction {
 }
 
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Dimension<T: Copy + Div + Mul + PartialEq> {
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct Dimension<T: Copy + Div + Mul + PartialEq + Send + Sync> {
     pub height: T,
     pub width: T,
 }
 
-impl<T: Copy + Div + Mul + PartialEq + Into<f64>> Dimension<T> {
+impl<T: Copy + Div + Mul + PartialEq + Into<f64> + Send + Sync> Dimension<T> {
     pub fn new(height: T, width: T) -> Self {
         Self {
             height,
@@ -67,7 +67,7 @@ impl<T: Copy + Div + Mul + PartialEq + Into<f64>> Dimension<T> {
     }
 }
 
-impl<T: Copy + Div + Mul + PartialEq> From<PhysicalSize<T>> for Dimension<T> {
+impl<T: Copy + Div + Mul + PartialEq + Send + Sync> From<PhysicalSize<T>> for Dimension<T> {
     fn from(item: PhysicalSize<T>) -> Self {
         Self {
             height: item.height,
@@ -76,7 +76,7 @@ impl<T: Copy + Div + Mul + PartialEq> From<PhysicalSize<T>> for Dimension<T> {
     }
 }
 
-impl<T: Copy + Div + Mul + PartialEq> From<Dimension<T>> for [T; 2] {
+impl<T: Copy + Div + Mul + PartialEq + Send + Sync> From<Dimension<T>> for [T; 2] {
     fn from(item: Dimension<T>) -> Self {
         [item.width, item.height]
     }
@@ -127,6 +127,26 @@ impl Default for Position<u32> {
     }
 }
 
+impl Default for Position<BlockUnit> {
+    fn default() -> Self {
+        Self {
+            x: BlockUnit(0.0),
+            y: BlockUnit(0.0),
+            z: BlockUnit(0.0),
+        }
+    }
+}
+
+impl Default for Position<ChunkUnit> {
+    fn default() -> Self {
+        Self {
+            x: ChunkUnit(0.0),
+            y: ChunkUnit(0.0),
+            z: ChunkUnit(0.0),
+        }
+    }
+}
+
 impl<T: Copy + PartialEq + Debug + 'static> From<Point3<T>> for Position<T> {
     fn from(item: Point3<T>) -> Self {
         Self {
@@ -150,7 +170,7 @@ impl Position<LocalBU> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Rotation<T: Copy + Debug + PartialEq + Float> {
+pub struct Rotation<T: Copy + Debug + PartialEq + Float + Send + Sync> {
     pub x: T,
     pub y: T,
     pub z: T,

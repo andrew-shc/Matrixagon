@@ -1,8 +1,10 @@
-use std::collections::HashMap;
 use crate::world::block::Block;
 use crate::world::mesh::MeshType;
 use crate::world::texture::Texture;
 use crate::world::block::state::{BlockState, Matter};
+
+use std::collections::HashMap;
+use std::ops::Index;
 
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug, Hash)]
@@ -94,5 +96,21 @@ impl BlockRegistry {
             }
         }
         None
+    }
+}
+
+impl Index<String> for BlockRegistry {
+    type Output = Block;
+
+    fn index(&self, index: String) -> &Self::Output {
+        &self.blocks[&self.block_id(index).unwrap()]
+    }
+}
+
+impl Index<&str> for BlockRegistry {
+    type Output = Block;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        &self.blocks[&self.block_id(String::from(index)).unwrap()]
     }
 }

@@ -1,3 +1,11 @@
+use crate::datatype as dt;
+use crate::ui;
+use crate::ui::{App, Layout};
+use crate::ui::layout as lyt;
+use crate::datatype::Dimension;
+use crate::world::World;
+use crate::event::EventDispatcher;
+
 use vulkano::device::{Device, Queue};
 use vulkano::sync::{GpuFuture, FlushError};
 use vulkano::swapchain::{Swapchain, SurfaceTransform, PresentMode, ColorSpace, FullscreenExclusive, SwapchainCreationError, AcquireError, Surface};
@@ -12,21 +20,14 @@ use vulkano::pipeline::GraphicsPipelineAbstract;
 use winit::window::Window;
 
 use std::sync::Arc;
-
-use crate::datatype as dt;
-use crate::ui;
-use crate::ui::{App, Layout};
-use crate::ui::layout as lyt;
-use crate::datatype::Dimension;
-use crate::world::World;
-use crate::event::EventQueue;
-use crate::event::types::{AppEvents, WorldEvents};
+use std::any::{TypeId, Any};
+use std::rc::Rc;
 
 
 pub struct MainApp<L: Layout> {
     device: Arc<Device>,
     queue: Arc<Queue>,
-    event: EventQueue<AppEvents>,
+    event: Rc<EventDispatcher>,
 
     prev_frame: Option<Box<dyn GpuFuture>>,  // previous frame
     swapchain: Arc<Swapchain<Window>>,  // swapchain is used for "swapping" the chain of images rendered from the GPU
@@ -45,6 +46,7 @@ pub struct MainApp<L: Layout> {
 impl MainApp<lyt::StackLayout> {
     pub fn new(device: Arc<Device>,
                queue: Arc<Queue>,
+               evd: Rc<EventDispatcher>,
                surface: Arc<Surface<Window>>,
                physical: PhysicalDevice,
                dimensions: Dimension<u32>,
@@ -90,14 +92,14 @@ impl MainApp<lyt::StackLayout> {
         let app_gp = app.render_gp(device.clone(), dimensions);
         // TODO: a separate struct to write pure ui code for the app?
 
-        let mut world = World::new(device.clone(), queue.clone(), renderpass.clone(), dimensions);
+        let mut world = World::new(device.clone(), queue.clone(), evd.clone(), renderpass.clone(), dimensions);
 
         let future = Some(world.bind_texture(future.unwrap()));
 
         Self {
             device: device.clone(),
             queue: queue.clone(),
-            event: EventQueue::new(),
+            event: evd.clone(),
 
             prev_frame: future,
             swapchain: swapchain.clone(),
@@ -115,7 +117,7 @@ impl MainApp<lyt::StackLayout> {
     }
 
     // updates the app; the app also should automatically renders the screen
-    pub fn update(&mut self, dimensions: dt::Dimension<u32>, wrld_events: Vec<WorldEvents>) {
+    pub fn update(&mut self, dimensions: dt::Dimension<u32>) {
         // println!("APP - UPDATE");
 
         // cleans the previous buffer
@@ -149,7 +151,7 @@ impl MainApp<lyt::StackLayout> {
 
         if suboptimal { self.recreate = true; }
 
-        self.world.update(dimensions, wrld_events, self.renderpass.clone(),
+        self.world.update(dimensions, self.renderpass.clone(),
                           self.framebuffer[image_num].clone(), self.recreate
         );
 

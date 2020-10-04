@@ -11,7 +11,7 @@ A stack machine based layout to push or pop screens.
 
 pub struct StackLayout {
     position: dt::Position<f32>,
-    objects: Vec<&'static ObjType<dyn Widget, dyn Layout>>,
+    objects: Vec<ObjType<dyn Widget, dyn Layout>>,
 }
 
 impl StackLayout {
@@ -23,7 +23,7 @@ impl StackLayout {
     }
 }
 
-impl<'a> Widget for StackLayout {
+impl Widget for StackLayout {
     fn update(&mut self, e: &Event<()>) {
         unimplemented!()
     }

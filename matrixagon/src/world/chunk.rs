@@ -12,7 +12,7 @@ pub struct Chunk {
     pub id: ChunkID,
     pub visible: bool,  // is it visible for frustum culling
     pub position: Position<ChunkUnit>,  // position by chunk sizes
-    pub block_data: Box<[Block; CHUNK_BLOCKS]>,  // abstract world.block data
+    pub block_data: Box<[Block; CHUNK_BLOCKS]>,  // abstract block data
     // each bit of u32 represent each vertical layer of the chunk that all have opaque blocks
     // (32) higher y-level < > lower y-level (0)
     // 1 == opaque; 0 == at least one is transparent
@@ -54,7 +54,7 @@ impl Chunk {
         }
     }
 
-    // TODO: temporary; will create a proper chunk interface
+    // TODO: temporary; will create a proper chunk interface; or use the event system
     pub fn update(&mut self, remove_block_pos: Position<LocalBU>, block_to_be_replaced: Block) {
         (*self.block_data)[remove_block_pos.into_vec_pos()] = block_to_be_replaced;
     }

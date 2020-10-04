@@ -1,13 +1,13 @@
-use self::cube::Cube;
+use crate::world::mesh::cube::Cube;
 use crate::world::mesh::cube::Side;
 use crate::world::chunk::Chunk;
 use crate::world::shader::{VertexType, IndexType, cube_vs};
 use crate::world::ChunkID;
 use crate::world::texture::TextureID;
 use crate::datatype::Dimension;
-use crate::world::player::Player;
-use crate::event::types::ChunkEvents;
 use crate::world::player::camera::Camera;
+use crate::world::chunk_threadpool::ChunkThreadPool;
+use crate::world::mesh::flora_x::FloraX;
 
 use vulkano::device::Device;
 use vulkano::framebuffer::RenderPassAbstract;
@@ -19,8 +19,6 @@ use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::descriptor::DescriptorSet;
 
 use std::sync::Arc;
-use crate::world::chunk_threadpool::ChunkThreadPool;
-use crate::world::mesh::flora_x::FloraX;
 use vulkano::image::ImmutableImage;
 use vulkano::format::Format;
 
@@ -86,18 +84,18 @@ impl MeshType {
 }
 
 // note: generic types here is only just for a reference, compiler does not enforce it
-pub type MeshDataType<'b, V: VertexType + Send + Sync, I: IndexType + Send + Sync> = (
+pub type MeshDataType<V: VertexType + Send + Sync, I: IndexType + Send + Sync> = (
     Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
     DynamicState,  // dynamic state for display
     Arc<CpuAccessibleBuffer<[V]>>,   // vertex buffer
     Arc<CpuAccessibleBuffer<[I]>>,  // index buffer
-    Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
+    Vec<Arc<dyn DescriptorSet+Send+Sync>>,   // sets (aka uniforms) buffer
     (),   // push-down constants TODO: A Generic Return of PushDown Constants
 );
 
-pub type MeshesDataType<'b> = Meshes<
-    MeshDataType<'b, <Cube as Mesh>::Vertex, <Cube as Mesh>::Index>,
-    MeshDataType<'b, <FloraX as Mesh>::Vertex, <FloraX as Mesh>::Index>,
+pub type MeshesDataType = Meshes<
+    MeshDataType<<Cube as Mesh>::Vertex, <Cube as Mesh>::Index>,
+    MeshDataType<<FloraX as Mesh>::Vertex, <FloraX as Mesh>::Index>,
 >;
 
 pub type MeshesStructType = Meshes<
@@ -156,28 +154,27 @@ impl MeshesStructType {
     }
 
     // update meshes
-    pub fn update(&mut self, dimensions: Dimension<u32>, player: &Player) {
-        self.cube.updt_world(dimensions, player);
-        self.flora_x.updt_world(dimensions, player);
+    pub fn update(&mut self, dimensions: Option<Dimension<u32>>, cam: Option<&Camera>) {
+        self.cube.updt_world(dimensions, cam);
+        self.flora_x.updt_world(dimensions, cam);
     }
 
     // re-renders the vertex and index data
-    pub fn render<'b>(
+    pub fn render(
         &mut self,
         device: Arc<Device>,
         renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
-        dimensions: Dimension<u32>,
         rerender: bool,
-        chunk_events: Vec<ChunkEvents>,
-    ) -> MeshesDataType<'b> {
+        reload_chunk: bool,
+    ) -> MeshesDataType {
         Meshes {
-            cube: self.cube.render(device.clone(), renderpass.clone(), dimensions, rerender, chunk_events.clone()),
-            flora_x: self.flora_x.render(device.clone(), renderpass.clone(), dimensions, rerender, chunk_events),
+            cube: self.cube.render(device.clone(), renderpass.clone(), rerender, reload_chunk),
+            flora_x: self.flora_x.render(device.clone(), renderpass.clone(), rerender, reload_chunk),
         }
     }
 }
 
-impl<'b> MeshesDataType<'b> {
+impl MeshesDataType {
     // a way to intercept the buffer mesh datas to quickly update player position and rotation without
     // the slowness from the chunk updates
     pub fn update_camera(&mut self, device: Arc<Device>, cam: &Camera, dimensions: Dimension<u32>,) {
@@ -233,13 +230,12 @@ pub trait Mesh {
     );  // loads all the chunks' data to the world.mesh's main vertices and indices vector
     fn updt_chunks(&mut self, id: ChunkID);  // updates the chunk (blocks, lighting, other chunk-bound info)
     fn remv_chunk(&mut self, id: ChunkID);  // remove the chunk from the chunk database of the world.mesh
-    fn updt_world(&mut self, dimensions: Dimension<u32>, player: &Player);  // updates world-bound info
+    fn updt_world(&mut self, dimensions: Option<Dimension<u32>>, player: Option<&Camera>);  // updates world-bound info
     fn render<'b>(&mut self,
                   device: Arc<Device>,
                   renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
-                  dimensions: Dimension<u32>,
                   rerender: bool,
-                  chunk_event: Vec<ChunkEvents>,
+                  reload_chunk: bool,
     ) -> (
             Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
             DynamicState,  // dynamic state for display
