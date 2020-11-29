@@ -147,8 +147,10 @@ impl ChunkHandler {
             println!("endn");
             self.reload_chunks = true;
         });
+        //TODO: maybe directly hook-up the events to each of the meshes directly
         self.event.clone().receive(EventName("MeshEvent/UpdateDimensions"), |mut param| {
             let dimn = param.pop::<Dimension<u32>>();
+
             self.meshes.update(Some(dimn), None);
         });
         self.event.clone().receive(EventName("MeshEvent/UpdateWorldStates"), |mut param| {
@@ -212,11 +214,13 @@ impl ChunkHandler {
             self.event.clone().emit(EventName("MeshEvent/UpdateMesh"), event_data![]);
         }
 
-        // TODO: TEMPORARY: To be handled by events
-        self.meshes.update(Some(state.dimensions), Some(&state.cam));
+        println!("vvvvvvvvvvvvvvvv P");
 
         // TODO: Calling this is really slow, once threadpool is completed, use threadpool
         let mesh_datas = self.meshes.render(self.device.clone(), state.renderpass.clone(), state.rerender, self.reload_chunks);
+
+        println!("^^^^^^^^^^^^^^^^ P");
+
         (mesh_datas, ChunkStatusInfo::from_chunk_handler(&self, chunk_loaded, chunk_offloaded, 0))
     }
 

@@ -5,7 +5,7 @@ use crate::datatype::Dimension;
 use crate::world::texture::Texture;
 use crate::world::chunk_handler::{ChunkHandler, ChunkStatusInfo};
 use crate::world::block::registry::BlockRegistry;
-use crate::event::EventDispatcher;
+use crate::event::{EventDispatcher, EventName};
 use crate::world::commands::WorldCommandExecutor;
 use crate::world::player::camera::Camera;
 
@@ -134,16 +134,16 @@ impl World {
         let (txtr_dt, txtr_future) = texture.texture_future();
         let block_registry = Arc::new(BlockRegistry::new(&texture));
 
+        let player = Player::new();
+
         // TODO: Use global work threads instead
         // chunk handler will create a new separate chunk threadpools
         // we only just need the channels
         let temp_chunkhandler = ChunkHandler::new(
             device.clone(), queue.clone(), evd.clone(),
-            Meshes::new(device.clone(), txtr_dt.clone(), renderpass.clone(), dimensions.clone()),
+            Meshes::new(device.clone(), txtr_dt.clone(), renderpass.clone(), dimensions.clone(), &player.camera),
             Terrain::new(24, block_registry.clone()),
         );
-
-        let player = Player::new();
 
         let mut cmd = WorldCommandExecutor::new();
         cmd.load_file_bytc("resource/commands/test00.wcb".into());
@@ -185,11 +185,14 @@ impl World {
             }
         }
 
+        println!("Nooo");
         if let Some(state) = &self.world_state {
             let new_state = WorldStateUpd::from_world(self.player.camera.clone(), self.registry.clone(), dimensions, renderpass.clone(), framebuffer.clone(), rerender);
             let update_state = state.update(&new_state);
             if update_state != ChunkUpdateState::Consistent {
+                println!("ChunkUpdateState no Consistent");
                 // TODO: temp
+                self.event.clone().emit(EventName("MeshEvent/UpdateDimensions"), event_data![dimensions]);
                 let (rb, csb) = self.temp_chunkhandler.update(new_state.clone());
 
                 self.render_buffer = Some(rb);
@@ -198,6 +201,7 @@ impl World {
                 self.world_state = Some(new_state);
             }
         } else {
+            println!("OFC");
             let new_state = WorldStateUpd::from_world(self.player.camera.clone(), self.registry.clone(), dimensions, renderpass.clone(), framebuffer.clone(), rerender);
             let (rb, csb) = self.temp_chunkhandler.update(new_state.clone());
 
@@ -217,17 +221,25 @@ impl World {
     ) -> AutoCommandBuffer<StandardCommandPoolAlloc> {
         // println!("WORLD - RENDER");
 
+        println!(".__.");
         // the render buffer should always have value taken care by the code above
-        let mut mesh_datas = self.render_buffer.clone().unwrap();
+        println!("DT?: {:?}", if let Some(_) = self.render_buffer {true} else {false});
+        // self.render_buffer.clone();
+        let mut mesh_datas = self.render_buffer.clone().expect("Render buffer missing");
         mesh_datas.update_camera(device.clone(), &self.player.camera, dimensions);
+        // self.render_buffer.unwrap().update_camera(device.clone(), &self.player.camera, dimensions);
+
+        // destructuring instead of cloning each field out has a noticeable rendering performance improvements
+        let MeshesDataType {cube, flora_x} = mesh_datas;
+
         // TODO: Maybe add a method for a way to recompute the descriptors without touching the vert/indx buffer
 
         let mut cmd_builder = AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap();
 
         cmd_builder
             .begin_render_pass(framebuffer.clone(), false, vec![[0.1, 0.3, 1.0, 1.0].into(), 1f32.into()]).unwrap()
-            .draw_mesh(mesh_datas.cube.clone()).unwrap()
-            .draw_mesh(mesh_datas.flora_x.clone()).unwrap()
+            .draw_mesh(cube).unwrap()
+            .draw_mesh(flora_x).unwrap()
             .end_render_pass().unwrap();
 
         cmd_builder.build().unwrap()

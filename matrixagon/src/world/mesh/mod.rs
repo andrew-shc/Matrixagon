@@ -21,6 +21,8 @@ use vulkano::descriptor::DescriptorSet;
 use std::sync::Arc;
 use vulkano::image::ImmutableImage;
 use vulkano::format::Format;
+use vulkano::buffer::cpu_pool::{CpuBufferPoolChunk, CpuBufferPoolSubbuffer};
+use vulkano::memory::pool::{StdMemoryPool, StdMemoryPoolAlloc};
 
 
 pub mod air;
@@ -83,15 +85,20 @@ impl MeshType {
     }
 }
 
-// note: generic types here is only just for a reference, compiler does not enforce it
-pub type MeshDataType<V: VertexType + Send + Sync, I: IndexType + Send + Sync> = (
+// a more generalized type alias for MeshDataType below
+pub type MeshDataTypeFull<V: VertexType + Send + Sync, I: IndexType + Send + Sync, Pc> = (
     Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
     DynamicState,  // dynamic state for display
-    Arc<CpuAccessibleBuffer<[V]>>,   // vertex buffer
-    Arc<CpuAccessibleBuffer<[I]>>,  // index buffer
+    // Arc<CpuAccessibleBuffer<[V]>>,   // vertex buffer
+    // Arc<CpuAccessibleBuffer<[I]>>,  // index buffer
+    CpuBufferPoolChunk<V, Arc<StdMemoryPool>>,  // vertex buffer
+    CpuBufferPoolChunk<I, Arc<StdMemoryPool>>,  // index buffer
     Vec<Arc<dyn DescriptorSet+Send+Sync>>,   // sets (aka uniforms) buffer
-    (),   // push-down constants TODO: A Generic Return of PushDown Constants
+    Pc,   // push-down constants TODO: A Generic Return of PushDown Constants
 );
+
+// note: generic types here is only just for a reference, compiler does not enforce it
+pub type MeshDataType<V: VertexType + Send + Sync, I: IndexType + Send + Sync> = MeshDataTypeFull<V, I, ()>;
 
 pub type MeshesDataType = Meshes<
     MeshDataType<<Cube as Mesh>::Vertex, <Cube as Mesh>::Index>,
@@ -129,12 +136,13 @@ impl MeshesStructType {
         txtr: Arc<ImmutableImage<Format>>,
         renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
         dimensions: Dimension<u32>,
+        cam: &Camera,
     ) -> Self {
         println!("MESHES - INITIALIZED");
 
         Self {
-            cube: Cube::new(device.clone(), txtr.clone(), renderpass.clone(), dimensions),
-            flora_x: FloraX::new(device.clone(), txtr.clone(), renderpass.clone(), dimensions),
+            cube: Cube::new(device.clone(), txtr.clone(), renderpass.clone(), dimensions, &cam),
+            flora_x: FloraX::new(device.clone(), txtr.clone(), renderpass.clone(), dimensions, &cam),
         }
     }
 
@@ -177,7 +185,7 @@ impl MeshesStructType {
 impl MeshesDataType {
     // a way to intercept the buffer mesh datas to quickly update player position and rotation without
     // the slowness from the chunk updates
-    pub fn update_camera(&mut self, device: Arc<Device>, cam: &Camera, dimensions: Dimension<u32>,) {
+    pub fn update_camera(&mut self, device: Arc<Device>, cam: &Camera, dimensions: Dimension<u32>) {
         let (proj, view, world) = cam.gen_mvp(dimensions);
 
         let persp_mat = CpuBufferPool::uniform_buffer(device.clone());
@@ -236,14 +244,23 @@ pub trait Mesh {
                   renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
                   rerender: bool,
                   reload_chunk: bool,
-    ) -> (
-            Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
-            DynamicState,  // dynamic state for display
-            Arc<CpuAccessibleBuffer<[Self::Vertex]>>,   // vertex buffer
-            Arc<CpuAccessibleBuffer<[Self::Index]>>,  // index buffer
-            Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
-            Self::PushConstants,   // constants
-    );  // retrieve the render data in the form of (vertices, indices)
+    ) -> MeshDataTypeFull<Self::Vertex, Self::Index, Self::PushConstants>;
+        //                (
+        //     Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
+        //     DynamicState,  // dynamic state for display
+        //     CpuBufferPoolChunk<Vec<Self::Vertex>, Arc<StdMemoryPool>>,   // vertex buffer
+        //     CpuBufferPoolChunk<Vec<Self::Index>, Arc<StdMemoryPool>>,  // index buffer
+        //     Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
+        //     Self::PushConstants,   // push-down constants
+        // );
+    //                    (
+    //         Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
+    //         DynamicState,  // dynamic state for display
+    //         Arc<CpuAccessibleBuffer<[Self::Vertex]>>,   // vertex buffer
+    //         Arc<CpuAccessibleBuffer<[Self::Index]>>,  // index buffer
+    //         Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
+    //         Self::PushConstants,   // constants
+    // );  // retrieve the render data in the form of (vertices, indices)
 }
 
 // NOTE: THIS IS AN EXTENSION TRAIT
@@ -252,37 +269,25 @@ pub trait Mesh {
 pub trait MeshesExt {
     fn draw_mesh<V, I>(
         &mut self,
-        mesh_data: (
-            Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
-            DynamicState,  // dynamic state for display
-            Arc<CpuAccessibleBuffer<[V]>>,   // vertex buffer
-            Arc<CpuAccessibleBuffer<[I]>>,  // index buffer
-            Vec<Arc<dyn DescriptorSet+Send+Sync>>,   // sets (aka uniforms) buffer
-            (),   // constants TODO: generic type
-    )) -> Result<&mut Self, DrawIndexedError>
+        mesh_data: MeshDataType<V, I>
+    ) -> Result<&mut Self, DrawIndexedError>
         where Self: Sized,
               V: VertexType + Send + Sync + 'static,
               I: Index + Send + Sync + 'static,
-              CpuAccessibleBuffer<[V]>: BufferAccess+TypedBufferAccess;
+              // CpuAccessibleBuffer<[V]>: BufferAccess+TypedBufferAccess;
+    ;
 }
 
 impl MeshesExt for AutoCommandBufferBuilder {
     fn draw_mesh<V, I>(
         &mut self,
-        mesh_data: (
-            Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
-            DynamicState,  // dynamic state for display
-            Arc<CpuAccessibleBuffer<[V]>>,   // vertex buffer
-            Arc<CpuAccessibleBuffer<[I]>>,  // index buffer
-            Vec<Arc<dyn DescriptorSet+Send+Sync>>,   // sets (aka uniforms) buffer
-            (),   // push constants TODO: generic type
-        )
+        mesh_data: MeshDataType<V, I>,
     ) -> Result<&mut Self, DrawIndexedError>
             where Self: Sized,
                   V: VertexType + Send + Sync + 'static,
                   I: Index + Send + Sync + 'static,
-                  CpuAccessibleBuffer<[V]>: BufferAccess+TypedBufferAccess,
+                  // CpuAccessibleBuffer<[V]>: BufferAccess+TypedBufferAccess,
     {
-        self.draw_indexed(mesh_data.0, &mesh_data.1, vec!(mesh_data.2), mesh_data.3, mesh_data.4, mesh_data.5)
+        self.draw_indexed(mesh_data.0, &mesh_data.1, vec![Arc::new(mesh_data.2)], mesh_data.3, mesh_data.4, mesh_data.5)
     }
 }

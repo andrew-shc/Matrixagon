@@ -1,5 +1,5 @@
 use crate::datatype::{Dimension, Position, ChunkUnit, BlockUnit};
-use crate::world::mesh::{Mesh, MeshType};
+use crate::world::mesh::{Mesh, MeshType, MeshDataTypeFull};
 use crate::world::chunk::Chunk;
 use crate::world::shader::{FloraVert, flora_vs, flora_fs};
 use crate::world::ChunkID;
@@ -16,7 +16,7 @@ use vulkano::buffer::{CpuAccessibleBuffer, BufferUsage, CpuBufferPool};
 use vulkano::sampler::{Sampler, SamplerAddressMode, Filter, MipmapMode};
 use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet};
 use vulkano::descriptor::DescriptorSet;
-use vulkano::buffer::cpu_pool::CpuBufferPoolSubbuffer;
+use vulkano::buffer::cpu_pool::{CpuBufferPoolSubbuffer, CpuBufferPoolChunk};
 use vulkano::memory::pool::StdMemoryPool;
 use vulkano::image::ImmutableImage;
 use vulkano::format::Format;
@@ -42,6 +42,8 @@ pub struct FloraX {
 
     vert_shd: flora_vs::Shader,
     frag_shd: flora_fs::Shader,
+    vrtx_buf: CpuBufferPool<<Self as Mesh>::Vertex>,
+    indx_buf: CpuBufferPool<<Self as Mesh>::Index>,
 
     persp_mat: CpuBufferPool<flora_vs::ty::MVP>,
     persp_buf: Option<CpuBufferPoolSubbuffer<flora_vs::ty::MVP, Arc<StdMemoryPool>>>,
@@ -55,12 +57,13 @@ impl FloraX {
     pub fn new(device: Arc<Device>,
                texture: Arc<ImmutableImage<Format>>,
                render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
-               dimensions: Dimension<u32>
+               dimensions: Dimension<u32>,
+               cam: &Camera,
     ) -> Self {
         let vs = flora_vs::Shader::load(device.clone()).expect("failed to create flora vertex shaders module");
         let fs = flora_fs::Shader::load(device.clone()).expect("failed to create flora fragment shaders module");
 
-        Self {
+        let mut s = Self {
             textures: texture.clone(),
             chunks: Vec::new(),
             grph_pipe: FloraX::pipeline(
@@ -71,6 +74,16 @@ impl FloraX {
 
             vert_shd: vs,
             frag_shd: fs,
+            vrtx_buf: CpuBufferPool::new(device.clone(), BufferUsage {
+                transfer_destination: true,
+                vertex_buffer: true,
+                ..BufferUsage::none()
+            }),
+            indx_buf: CpuBufferPool::new(device.clone(), BufferUsage {
+                transfer_destination: true,
+                index_buffer: true,
+                ..BufferUsage::none()
+            }),
 
             persp_mat: CpuBufferPool::uniform_buffer(device.clone()),
             persp_buf: None,
@@ -80,7 +93,15 @@ impl FloraX {
 
             vertices: Vec::new(),
             indices: Vec::new(),
-        }
+        };
+        println!("FX-VB Resv: {:?}", s.vrtx_buf.capacity());
+        println!("FX-IB Resv: {:?}", s.vrtx_buf.capacity());
+        s.vrtx_buf.reserve(4);
+        s.indx_buf.reserve(4);
+        println!("FX-VB Resv Aft: {:?}", s.vrtx_buf.capacity());
+        println!("FX-IB Resv Aft: {:?}", s.vrtx_buf.capacity());
+        s.updt_world(Some(dimensions), Some(cam));
+        s
     }
 
     // internal function for building pipeline
@@ -330,14 +351,26 @@ impl Mesh for FloraX {
                   renderpass: Arc<dyn RenderPassAbstract + Send + Sync>,
                   rerender: bool,
                   reload_chunk: bool,
-    ) -> (
-        Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
-        DynamicState,  // dynamic state for display
-        Arc<CpuAccessibleBuffer<[Self::Vertex]>>,   // vertex buffer
-        Arc<CpuAccessibleBuffer<[Self::Index]>>,  // index buffer
-        Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
-        Self::PushConstants,   // push-down constants
-    ) {
+    ) -> MeshDataTypeFull<Self::Vertex, Self::Index, Self::PushConstants>
+       // (
+       //     Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
+       //     DynamicState,  // dynamic state for display
+       //     CpuBufferPoolChunk<Self::Vertex, Arc<StdMemoryPool>>,   // vertex buffer
+       //     CpuBufferPoolChunk<Self::Index, Arc<StdMemoryPool>>,  // index buffer
+       //     Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
+       //     Self::PushConstants,   // push-down constants
+       // )
+    //                    (
+    //     Arc<dyn GraphicsPipelineAbstract + Send + Sync>,  // graphic pipeline
+    //     DynamicState,  // dynamic state for display
+    //     Arc<CpuAccessibleBuffer<[Self::Vertex]>>,   // vertex buffer
+    //     Arc<CpuAccessibleBuffer<[Self::Index]>>,  // index buffer
+    //     Vec<Arc<dyn DescriptorSet+Send+Sync+'b>>,   // sets (aka uniforms) buffer
+    //     Self::PushConstants,   // push-down constants
+    // )
+    {
+        println!("vvvvvvvvvvvvvvvv P");
+
         if rerender {
             self.grph_pipe = Self::pipeline(
                 &self.vert_shd, &self.frag_shd,
@@ -389,19 +422,33 @@ impl Mesh for FloraX {
             .build().unwrap()
         );
 
+        println!("^^^^^^^^^^^^^^^^ P");
+        let vrtx_sb = self.vrtx_buf.chunk(self.vertices.clone()).unwrap();
+        let indx_sb = self.indx_buf.chunk(self.indices.clone()).unwrap();
+
+
         (
             self.grph_pipe.clone(),
             DynamicState::none(),
-            CpuAccessibleBuffer::from_iter(
-                device.clone(), BufferUsage::vertex_buffer(),
-                false, self.vertices.clone().into_iter()
-            ).unwrap(),
-            CpuAccessibleBuffer::from_iter(
-                device.clone(), BufferUsage::index_buffer(),
-                false, self.indices.clone().into_iter()
-            ).unwrap(),
+            vrtx_sb,
+            indx_sb,
             vec![set0, set1],
             (),
         )
+
+        // (
+        //     self.grph_pipe.clone(),
+        //     DynamicState::none(),
+        //     CpuAccessibleBuffer::from_iter(
+        //         device.clone(), BufferUsage::vertex_buffer(),
+        //         false, self.vertices.clone().into_iter()
+        //     ).unwrap(),
+        //     CpuAccessibleBuffer::from_iter(
+        //         device.clone(), BufferUsage::index_buffer(),
+        //         false, self.indices.clone().into_iter()
+        //     ).unwrap(),
+        //     vec![set0, set1],
+        //     (),
+        // )
     }
 }

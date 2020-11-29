@@ -165,7 +165,8 @@ impl MainApp<lyt::StackLayout> {
         let ui_cmd_buf = self.ui.render_cp(self.device.clone(), self.queue.clone(),
                                            self.ui_gp.clone(), self.framebuffer[image_num].clone(), );
 
-        let future = self.prev_frame.take().unwrap()
+        let future = self.prev_frame
+            .take().unwrap()
             .join(acquire_future)
             .then_execute(self.queue.clone(), world_cp).unwrap()
             // .then_execute(self.queue.clone(), ui_cmd_buf).unwrap()

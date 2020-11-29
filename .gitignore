@@ -2,5 +2,5 @@ target/
 temp/
 
 /proto
-/.idea
+.idea/
 the_endless_world.iml
