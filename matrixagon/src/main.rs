@@ -1,166 +1,14 @@
-// TODO: testing new renderer
-
-// #[macro_use]
-// extern crate bytemuck;
+extern crate nalgebra as na;
 
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
 
 use ash::vk;
-use ash::version::{DeviceV1_0};
-use ash::extensions::khr;
 
 use std::mem;
+use std::fs::File;
 
-
-/*
-==== External Renderer (higher-level abstraction with absolute no ash crate exposure, to use in the game code, which uses game structs to render):
-
-// interface to the graphics API
-let interface = InternalRenderer::new(app_name, validation_layers);
-
-// 3D/2D pipeline implementes traits of 3Drender or 2Drender
-
-let pipeline0 = interface.new_pipeline3D(
-    vert_fname,
-    frag_fname,
-    viewport: dimensions,
-    polygon_mode,
-    cull,
-    transperency,
-);
-
-let pipeline1 = interface.new_pipeline2D(
-    vert_fname,
-    frag_fname,
-    viewport: dimensions,
-    polygon_mode,
-    transperency,
-)
-
-interface.add_pipeline3D(id, pipeline0);
-interface.add_pipeline2D(id, pipeline1);
-
-let cmd = interface.command_data();
-
-event_loop.loop(move || {
-    cmd.clear((0,0,0,1));
-    cmd.on_outdated_screen(|| {});
-    cmd.render3D.world(id, world_data);
-    cmd.render3D.entities(id, entity_data);
-    cmd.render3D.other(id, vertex_data);
-    cmd.render2D.ui(id, ui_data);
-    cmd.render2D.other(id, vertex_data);
-    cmd.present();
-});
-
-==== Internal Renderer (exposes minimal ash::vk, abstraction to only expose most needed stuff (vertex buffering, graphics pipeline)):
-
-// entry within instance
-let instance = Instance::new(app_name, debug<bool>, api_version);  // debug includes internal printer and the vulkan validation layer
-
-// find devices that has queue support of
-let device = instance.find_devices(required_extensions, Enum::GRAPHICS && Enum::PRESENT).expect("No supported phys devc found");
-
-let swapchain = instance.get_swapchain(device, min_img_count, dimensions);
-
-// just create the renderpass at the start, since there are really onle 2 major renderpasses.
-let main_graphics_pipeline = GraphicsPipeline::new::<(VertexType)>(
-    (fname, ...),  // vertex
-    (fname, ...),  // fragment
-    PolygonMode,
-    CullMode,
-    Alpha,
-    DepthBuffering,
-)
-
-// command pool will be within the command buffers
-let command_buffers = CommandBuffers::new(device)
-    .begin_pass(enable_depth<bool>)
-    .draw_pipeline(pipeline, )
-    .end_pass()
-    .build();
-
-event_loop.loop(move || {
-    if suboptimal {
-        main_graphics_pipeline.recreate_viewport();
-        swapchain.recreate_viewport();
-    }
-
-    let suboptimal = swapchain.suboptimal();
-
-    device.execute_and_present(command_buffer);
-
-    if loop_end {
-        instance.cleanup(device, swapchain, pipelines, command_buffers);
-    }
-});
-
- */
-
-
-use renderer::{InstanceMTXG, CleanupVkObj};
-use renderer::pipeline::{GraphicsPipelineMTXG, VertexInfo};
-use renderer::command_buffers::{CommandBufferMTXG, CommandPoolMTXG};
-use renderer::buffer::{UniformBufferMTXG, create_image_view, create_sampler, ImageMemoryMTXG, BufferMemoryMTXG};
-use renderer::descriptors::{DescriptorSetsMTXG, SetBindingMTXG};
-use renderer::swapchain::SwapchainMTXG;
-use renderer::device::DeviceMTXG;
-
-
-// https://github.com/MaikKlein/ash/blob/master/examples/src/lib.rs#L17
-macro_rules! offset_of {
-    ($base:path, $field:ident) => {{
-        #[allow(unused_unsafe)]
-        unsafe {
-            let b: $base = mem::zeroed();
-            (&b.$field as *const _ as isize) - (&b as *const _ as isize)
-        }
-    }};
-}
-
-#[derive(Copy, Clone, Debug)]
-struct CubeVertex {
-    pos: [f32; 3],
-    col: [f32; 3],
-    crd: [f32; 2],
-}
-
-impl VertexInfo for CubeVertex {
-    fn impl_binding() -> vk::VertexInputBindingDescription {
-        vk::VertexInputBindingDescription {
-            binding: 0,
-            stride: mem::size_of::<CubeVertex>() as u32,
-            input_rate: vk::VertexInputRate::VERTEX,
-        }
-    }
-
-    fn impl_attributes() -> Vec<vk::VertexInputAttributeDescription> {
-        vec![
-            vk::VertexInputAttributeDescription {  // pos
-                binding: 0,
-                location: 0,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: offset_of!(CubeVertex, pos) as u32,
-            },
-            vk::VertexInputAttributeDescription {  // color
-                binding: 0,
-                location: 1,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: offset_of!(CubeVertex, col) as u32,
-            },
-            vk::VertexInputAttributeDescription {  // txtr coords
-                binding: 0,
-                location: 2,
-                format: vk::Format::R32G32_SFLOAT,
-                offset: offset_of!(CubeVertex, crd) as u32,
-            },
-        ]
-    }
-}
-
-
-extern crate nalgebra as na;
+use renderer::CleanupVkObj;
 
 use na::{
     Point3,
@@ -170,6 +18,21 @@ use na::{
     Isometry3,
     Translation3,
 };
+
+use crate::render::buffers::{SamplerFilter, SamplerAddressMode};
+use crate::render::{TextureFormat, ShaderStages, Commands, DataType, VertexRates};
+
+#[macro_use] mod render;
+
+
+#[derive(Copy, Clone, Debug)]
+struct CubeVertex {
+    pos: [f32; 3],
+    col: [f32; 3],
+    crd: [f32; 2],
+}
+
+impl_vertex!(CubeVertex, pos => DataType::Vec3, col => DataType::Vec3, crd => DataType::Vec2,);
 
 
 type Matrix3D = [[f32; 4]; 4];
@@ -240,70 +103,29 @@ struct MVPUniform {
 
 
 fn main() {
-    println!("START");
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("Matrixagon - Rust/Ash")
         .build(&event_loop).unwrap();
 
-    let instance = InstanceMTXG::new(&window, "App Name", true, (1,2,0));
+    let (mut gfx, device) = render::Renderer::new(&window, "App Name", true);
 
-    let device = instance.find_device(vec![khr::Swapchain::name()], true);
-
-    // let mut swapchain = instance.get_swapchain(&device, 2, None);
-    let mut swapchain = SwapchainMTXG::new(&instance, &device, 2, true, None);
-
-    let cmd_pool = CommandPoolMTXG::new(&device);
-
-    let renderpass = GraphicsPipelineMTXG::create_renderpass_with_depth(&device, swapchain.image_format().format, device.find_depth_format());
-
-    use std::fs::File;
-
+    // TEXTURE BUFFER
     let decoder = png::Decoder::new(File::open("./grass_side.png").unwrap());
     let (info, mut reader) = decoder.read_info().unwrap();
     let mut txtr_buf = vec![0; info.buffer_size()];
     reader.next_frame(&mut txtr_buf).unwrap();
 
-    let vk_txtr_format = match info.color_type {
-        png::ColorType::Grayscale => { vk::Format::R8_SRGB },
-        png::ColorType::RGB => { vk::Format::R8G8B8_SRGB },
-        png::ColorType::Indexed => { vk::Format::R8G8B8_SRGB },  // dont know what is this, defaulting to RGB
-        png::ColorType::GrayscaleAlpha => { vk::Format::R8G8_SRGB },  // R=Greyscale,G=Alpha
-        png::ColorType::RGBA => { vk::Format::R8G8B8A8_SRGB },
-    };
+    let mut sampler = gfx.create_sampler();
+    sampler.filter(SamplerFilter::Nearest, SamplerFilter::Nearest);
+    sampler.address_mode(SamplerAddressMode::ClampToBorder, SamplerAddressMode::ClampToBorder);
+    sampler.anisotropy(4.0);
+    sampler.build(&device);
 
-    // let stage_img = CPUAccessibleBufferMTXG::new(&instance,&device,vk::BufferUsageFlags::TRANSFER_SRC,txtr_buf);
-    let stage_img = BufferMemoryMTXG::new::<u8>(&instance, &device, txtr_buf.len(), vk::BufferUsageFlags::TRANSFER_SRC,
-                                                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT)
-        .fill(txtr_buf);
-    let texture_img = ImageMemoryMTXG::new(&instance, &device, info.width, info.height, vk_txtr_format,
-                                           vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED, vk::MemoryPropertyFlags::DEVICE_LOCAL);
+    let image = gfx.create_sampled_image(txtr_buf, info.width, info.height,TextureFormat::RGBA, sampler.clone());
 
-    let cmd_buf = CommandBufferMTXG::new(&device, &cmd_pool, 1);
-    cmd_buf.start_recording(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-    cmd_buf.transition_img_layout(&texture_img, vk::ImageLayout::UNDEFINED, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
-    cmd_buf.copy_buffer_to_image(&stage_img, &texture_img);
-    cmd_buf.transition_img_layout(&texture_img, vk::ImageLayout::TRANSFER_DST_OPTIMAL, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-    cmd_buf.finish_recording();
-    cmd_buf.build_submit_once(&device);
-
-    unsafe { cmd_buf.cleanup(&device) };
-    unsafe { stage_img.cleanup(&device) };
-
-    let texture_img_view = create_image_view(&device, texture_img.image, vk::Format::R8G8B8A8_SRGB, vk::ImageAspectFlags::COLOR);
-
-    let texture_sampler = create_sampler(
-        &device,
-        vk::Filter::NEAREST,vk::Filter::NEAREST,
-        vk::SamplerAddressMode::REPEAT,vk::SamplerAddressMode::REPEAT,
-        true,4.0);
-
-    let mut uniform_buf_vec = Vec::with_capacity(swapchain.image_count());
-    for _ in 0..swapchain.image_count() {
-        uniform_buf_vec.push(UniformBufferMTXG::new::<MVPUniform>(&instance, &device));
-    }
-
-    let aspect_ratio = swapchain.current_extent().width as f32 / swapchain.current_extent().height as f32;
+    // MVP BUFFER
+    let aspect_ratio = gfx.current_extent().width as f32 / gfx.current_extent().height as f32;
     // mvp from camera's position
     let mvp = gen_mvp(aspect_ratio, 1.3, 0.1, 100.0, 0.0, 0.0, -10.0, 0.0, 0.0, 0.0);
     let mvp_uniform = MVPUniform {
@@ -312,33 +134,24 @@ fn main() {
         proj: mvp.2,
     };
 
-    for i in 0..swapchain.image_count() {
-        uniform_buf_vec[i].update(&device, mvp_uniform.clone());
-    }
+    let mut mvp_ub = gfx.create_uniform_buffer::<MVPUniform>();
+    mvp_ub.update(&device, mvp_uniform);
 
-    let mvp_binding = SetBindingMTXG::new(0, vk::DescriptorType::UNIFORM_BUFFER, vk::ShaderStageFlags::VERTEX);
-    let txtr_binding = SetBindingMTXG::new(1, vk::DescriptorType::COMBINED_IMAGE_SAMPLER, vk::ShaderStageFlags::FRAGMENT);
+    let mut main_descriptors = gfx.create_descriptors();
+    main_descriptors.bind_uniform(0,ShaderStages::Vertex,mvp_ub.clone());
+    main_descriptors.bind_sampler(1, ShaderStages::Fragment, image.clone());
+    main_descriptors.build(&device);
 
-    // descriptor lasts for the entire lifetime of the pipeline its used by
-    let main_dscrp = DescriptorSetsMTXG::new(&device, &[mvp_binding, txtr_binding], swapchain.image_count() as u32);
-    main_dscrp.bind_uniform(0, uniform_buf_vec.as_slice(), true);
-    main_dscrp.bind_sampler(1, &[texture_img_view], texture_sampler, false);
+    let main_renderpass = gfx.get_renderpass();
 
-
-    let mut main_gp = GraphicsPipelineMTXG::new::<CubeVertex>(
-        &device,
-        swapchain.current_extent(),
-        renderpass,
-        Some(&main_dscrp),
+    let mut main_gp = gfx.create_graphics_pipeline::<CubeVertex>(
+        &main_renderpass,
+        &main_descriptors,
         "./vert.spv",
         "./frag.spv",
-        vk::PolygonMode::FILL,
-        vk::CullModeFlags::NONE,
-        false,
-        true,
+        VertexRates::Vertex,
+        true,false,
     );
-
-    let mut framebuffer = swapchain.get_framebuffers(&device, renderpass);
 
     let vertices = vec![
         // face 1
@@ -361,34 +174,17 @@ fn main() {
         4, 6, 7,
     ];
 
-    let vert_buf = BufferMemoryMTXG::new::<CubeVertex>(&instance, &device, vertices.len(), vk::BufferUsageFlags::VERTEX_BUFFER,
-                                                       vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT)
-        .fill(vertices);
-    let indx_buf = BufferMemoryMTXG::new::<u32>(&instance, &device, indices.len(), vk::BufferUsageFlags::INDEX_BUFFER,
-                                                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT)
-        .fill(indices);
+    let vert_buf = gfx.create_vertex_buffer(vertices);
+    let indx_buf = gfx.create_index_buffer(indices);
 
-    // let vert_buf = CPUAccessibleBufferMTXG::new(&instance, &device, vk::BufferUsageFlags::VERTEX_BUFFER, vertices);
-    // let indx_buf = CPUAccessibleBufferMTXG::new(&instance, &device, vk::BufferUsageFlags::INDEX_BUFFER, indices);
+    let mut cmd_buf = gfx.create_command_buffers(
+        main_renderpass,
+        (0.0, 0.0, 0.5),
+        vec![
+            Commands::DrawIndexed(main_gp.clone(), 0, vert_buf.clone(), indx_buf.clone(), Some(main_descriptors.clone())),
+        ],
+    );
 
-    let cmd_buf = CommandBufferMTXG::new(&device, &cmd_pool, framebuffer.len() as u32);
-    cmd_buf.start_recording(vk::CommandBufferUsageFlags::empty());
-    cmd_buf.begin_depth_pass(renderpass, &framebuffer, swapchain.current_extent(), (0.0, 0.0, 0.0));
-    cmd_buf.draw_pipeline_indexed(&main_gp, 0, &vert_buf, &indx_buf, vk::IndexType::UINT32, Some(&main_dscrp));
-    cmd_buf.end_pass();
-    cmd_buf.finish_recording();
-    let mut present = cmd_buf.build(&swapchain);  // first creation, so recreation is false
-
-
-    // // creation of depth image
-    // let format = device.find_depth_format();
-    // let vk::Extent2D { width, height } = swapchain.current_extent();
-    // let depth_image = ImageMemoryMTXG::new(&instance, &device, width, height, format,
-    //                                        vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT, vk::MemoryPropertyFlags::DEVICE_LOCAL);
-    // let depth_image_view = create_image_view(&device, depth_image.image, format, vk::ImageAspectFlags::DEPTH);
-
-    // println!("vvvvvvvvvvvvvvvvvvvvvvv [@#]");
-    // println!("^^^^^^^^^^^^^^^^^^^^^^^ [@~]");
 
     use winit::event::{Event, WindowEvent, VirtualKeyCode as K, ElementState, KeyboardInput};
     use winit::event_loop::ControlFlow;
@@ -424,68 +220,45 @@ fn main() {
             },
             // Called when the windows contents are invalidated (e.g.: dimensions changed)
             Event::RedrawRequested(window_id) => {
-                unsafe {
-                    if present.check_suboptimal_once() || window_resized {
-                        // note: renderpass does not need to be recreate because its independent from window sizes
-                        window_resized = false;
+                if cmd_buf.suboptimal() || window_resized {
+                    window_resized = false;
 
-                        device.wait_idle();
+                    gfx.recreate(vec![&mut main_gp], vec![&cmd_buf, &main_descriptors]);
 
-                        // swapchain recreation / object cleanup
-                        swapchain = swapchain.clone().recreate_swapchain(&instance, &device, vec![
-                            &swapchain,
-                            &main_gp,
-                            &framebuffer,
-                            &present,
-                        ]);
+                    unsafe { mvp_ub.cleanup(&device); }
+                    mvp_ub = gfx.create_uniform_buffer::<MVPUniform>();
 
-                        // retrieving recreated object
-                        framebuffer = swapchain.get_framebuffers(&device, renderpass);
+                    main_descriptors = gfx.create_descriptors();
+                    main_descriptors.bind_uniform(0,ShaderStages::Vertex,mvp_ub.clone());
+                    main_descriptors.bind_sampler(1, ShaderStages::Fragment, image.clone());
+                    main_descriptors.build(&device);
 
-                        main_gp.recreate_pipeline(&device, swapchain.current_extent());
+                    gfx.replace_command_buffers(&mut cmd_buf,
+                                                main_renderpass,
+                                                (0.0, 0.0, 0.5),
+                                                vec![
+                                                    Commands::DrawIndexed(main_gp.clone(), 0, vert_buf.clone(), indx_buf.clone(), Some(main_descriptors.clone())),
+                                                ]
+                    );
 
-                        let cmd_buf = CommandBufferMTXG::new(&device, &cmd_pool, framebuffer.len() as u32);
-                        cmd_buf.start_recording(vk::CommandBufferUsageFlags::empty());
-                        cmd_buf.begin_depth_pass(renderpass, &framebuffer, swapchain.current_extent(), (0.0, 0.0, 0.0));
-                        cmd_buf.draw_pipeline_indexed(&main_gp, 0, &vert_buf, &indx_buf, vk::IndexType::UINT32, Some(&main_dscrp));
-                        cmd_buf.end_pass();
-                        cmd_buf.finish_recording();
-                        present.replace_cmd_buffer(cmd_buf);
+                    let aspect_ratio = gfx.current_extent().width as f32 / gfx.current_extent().height as f32;
 
-                        // uniform buffer update
-                        // uniform buffer only needs to be recreated when swapchain has different image count
-                        if swapchain.image_count() != uniform_buf_vec.len() {
-                            for i in 0..uniform_buf_vec.len() {
-                                uniform_buf_vec[i].cleanup(&device);
-                                uniform_buf_vec.push(UniformBufferMTXG::new::<MVPUniform>(&instance, &device));
-                            }
-                            uniform_buf_vec.clear();
-                            for _ in 0..swapchain.image_count() {
-                                uniform_buf_vec.push(UniformBufferMTXG::new::<MVPUniform>(&instance, &device));
-                            }
+                    // mvp from camera's position
+                    let mvp = gen_mvp(aspect_ratio, 1.3, 0.1, 100.0, 0.0, 0.0, -1.0, 0.0, 0.0, t);
+                    let mvp_uniform = MVPUniform {
+                        model: mvp.0,
+                        view: mvp.1,
+                        proj: mvp.2,
+                    };
 
-                            let aspect_ratio = swapchain.current_extent().width as f32 / swapchain.current_extent().height as f32;
-
-                            // mvp from camera's position
-                            let mvp = gen_mvp(aspect_ratio, 1.3, 0.1, 100.0, 0.0, 0.0, -10.0, 0.0, 0.0, t);
-                            let mvp_uniform = MVPUniform {
-                                model: mvp.0,
-                                view: mvp.1,
-                                proj: mvp.2,
-                            };
-
-                            for i in 0..swapchain.image_count() {
-                                uniform_buf_vec[i].update(&device, mvp_uniform.clone());
-                            }
-                        }
-                    }
+                    mvp_ub.update(&device, mvp_uniform);
                 }
             },
             // Calls after RedrawRequested, else calls after MainEventsCleared
             Event::RedrawEventsCleared => {
                 t += 0.001;
 
-                let aspect_ratio = swapchain.current_extent().width as f32 / swapchain.current_extent().height as f32;
+                let aspect_ratio = gfx.current_extent().width as f32 / gfx.current_extent().height as f32;
 
                 // mvp from camera's position
                 let mvp = gen_mvp(aspect_ratio, 1.3, 0.1, 100.0, 0.0, 0.0, -1.0, 0.0, 0.0, t);
@@ -495,18 +268,12 @@ fn main() {
                     proj: mvp.2,
                 };
 
-                for i in 0..swapchain.image_count() {
-                    uniform_buf_vec[i].update(&device, mvp_uniform.clone());
-                }
+                mvp_ub.update(&device, mvp_uniform);
 
-                present.submit_and_present(&swapchain);
+                cmd_buf.present(&gfx);
             },
             Event::LoopDestroyed => {
-                unsafe {
-                    instance.clone().cleanup(&device, vec![
-                        &swapchain, &main_gp, &renderpass, &framebuffer, &present, &cmd_pool, &texture_img, &texture_img_view, &texture_sampler, &uniform_buf_vec, &main_dscrp, &vert_buf, &indx_buf
-                    ]);
-                };
+                gfx.end(vec![&main_gp], vec![&main_renderpass], &cmd_buf, vec![&image, &sampler, &mvp_ub, &main_descriptors, &vert_buf, &indx_buf]);
             },
             _ => {},
         }
@@ -514,7 +281,7 @@ fn main() {
 }
 
 // TODO ==== BEGIN ORIGINAL CODE ====
-
+//
 // extern crate nalgebra as na;
 //
 // use vulkano::{
@@ -532,8 +299,7 @@ fn main() {
 // use crate::event::{EventDispatcher, EventName};
 // use crate::event::types;
 //
-// #[macro_use]
-// mod event;
+// #[macro_use] mod event;
 // mod threadpool;
 // mod ui;
 // mod world;
@@ -543,18 +309,6 @@ fn main() {
 // mod math;
 // mod util;
 //
-//
-// // #[macro_export]
-// // macro_rules! println {
-// //     ($args:literal $(,)?) => {{
-// //         std::print!("{:?} {:?} {:?} :", file!(), line!(), column!());
-// //         std::println!($args);
-// //     }};
-// //     ($args:literal, $($param:tt)*) => {{
-// //         std::print!("{:?} {:?} {:?} :", file!(), line!(), column!());
-// //         std::println!($args, $($param)*);
-// //     }};
-// // }
 //
 //
 // fn main() {

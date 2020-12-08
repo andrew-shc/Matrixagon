@@ -8,6 +8,7 @@ use crate::buffer::UniformBufferMTXG;
 use crate::CleanupVkObj;
 
 
+#[allow(dead_code)]  // TODO: ind field is currently not been read
 #[derive(Copy, Clone)]
 pub struct SetBindingMTXG {
     ind: u32,
@@ -34,6 +35,7 @@ impl SetBindingMTXG {
     }
 }
 
+#[derive(Clone)]
 pub struct DescriptorSetsMTXG {
     pub(crate) device: DeviceMTXG,
     pub(crate) set_layout: vk::DescriptorSetLayout,
@@ -212,7 +214,8 @@ impl CleanupVkObj for DescriptorSetsMTXG {
     }
 
     unsafe fn cleanup_recreation(&self, device: &DeviceMTXG) {
-
+        device.device.destroy_descriptor_pool(self.pool, None);
+        device.device.destroy_descriptor_set_layout(self.set_layout, None);
     }
 }
 

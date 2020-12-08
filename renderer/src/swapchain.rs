@@ -5,7 +5,6 @@ use ash::version::DeviceV1_0;
 use crate::device::DeviceMTXG;
 use crate::{InstanceMTXG, CleanupVkObj};
 use crate::buffer::{create_image_view, ImageMemoryMTXG};
-use ash::vk::ImageView;
 
 
 #[derive(Clone)]

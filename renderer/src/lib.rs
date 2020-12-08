@@ -1,4 +1,4 @@
-// TODO-IMPORTANT: this will be the lib.rs after adding to the main repo
+// TODO: eradicate all unnecessary `.clone()` functions with copy, reference, or moves.
 
 use ash::vk;
 use ash::version::{EntryV1_0, InstanceV1_0, DeviceV1_0};
@@ -11,8 +11,6 @@ use std::os::raw::{c_char, c_void};
 use std::borrow::Cow;
 
 use crate::device::DeviceMTXG;
-use crate::swapchain::SwapchainMTXG;
-use crate::buffer::create_image_view;
 
 pub mod device;
 pub mod swapchain;
@@ -326,12 +324,12 @@ impl InstanceMTXG {
         }
     }
 
-    pub unsafe fn cleanup(self,
+    pub unsafe fn cleanup(&self,
                           device: &DeviceMTXG,
                           objects: Vec<&dyn CleanupVkObj>) {
         let device = device.clone();
 
-        device.device.device_wait_idle();
+        device.device.device_wait_idle().unwrap();
         if self.debug_mode {
             println!("Cleanup initiated");
         }
@@ -344,7 +342,7 @@ impl InstanceMTXG {
 
         device.device.destroy_device(None);
         if self.debug_mode {
-            self.debug_handler.unwrap().destroy_debug_utils_messenger(self.debug.unwrap(), None);
+            self.debug_handler.as_ref().unwrap().destroy_debug_utils_messenger(self.debug.unwrap(), None);
         }
         self.surface_handler.destroy_surface(self.surface, None);
         self.instance.destroy_instance(None);

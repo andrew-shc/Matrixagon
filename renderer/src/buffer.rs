@@ -80,7 +80,7 @@ impl BufferMemoryMTXG {
     pub fn new<D: Copy>(instance: &InstanceMTXG, device: &DeviceMTXG, len: usize, usage: vk::BufferUsageFlags, prop: vk::MemoryPropertyFlags) -> Self {
         // len parameter for finding pre-buffer-alloc size from the length of each type D
         let buf_size = (mem::size_of::<D>() * len) as u64;
-        let (buf, mem, alloc_size) = create_buf(instance, device, buf_size, usage, prop);
+        let (buf, mem, _alloc_size) = create_buf(instance, device, buf_size, usage, prop);
 
         Self {
             device: device.clone(),
@@ -144,7 +144,7 @@ impl ImageMemoryMTXG {
 }
 
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct UniformBufferMTXG {
     pub(crate) buffer: vk::Buffer,
     pub(crate) memory: vk::DeviceMemory,
@@ -154,7 +154,7 @@ pub struct UniformBufferMTXG {
 impl UniformBufferMTXG {
     pub fn new<U>(instance: &InstanceMTXG, device: &DeviceMTXG) -> Self {
         let data_size = mem::size_of::<U>() as u64;
-        let (buf, mem, alloc_size) = create_buf(instance, device, data_size,
+        let (buf, mem, _alloc_size) = create_buf(instance, device, data_size,
                                     vk::BufferUsageFlags::UNIFORM_BUFFER, vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
         Self {
             buffer: buf,
@@ -217,7 +217,7 @@ fn create_img(instance: &InstanceMTXG,
 
     let image_mem = unsafe { device.device.allocate_memory(&mem_ainfo, None) }.expect("Failed tor create an image memory");
 
-    unsafe { device.device.bind_image_memory(txtr_image, image_mem, 0) };
+    unsafe { device.device.bind_image_memory(txtr_image, image_mem, 0) }.unwrap();
 
     // note: memory requested size does not necessarily means the actual size of the buffer
     (txtr_image, image_mem, image_mem_req.size)
@@ -273,6 +273,7 @@ fn find_memtype_ind(
 }
 
 
+#[allow(unused_variables)]
 impl CleanupVkObj for vk::ImageView {
     unsafe fn cleanup(&self, device: &DeviceMTXG) {
         device.device.destroy_image_view(*self, None);
@@ -281,6 +282,7 @@ impl CleanupVkObj for vk::ImageView {
     unsafe fn cleanup_recreation(&self, device: &DeviceMTXG) {}
 }
 
+#[allow(unused_variables)]
 impl CleanupVkObj for vk::Sampler {
     unsafe fn cleanup(&self, device: &DeviceMTXG) {
         device.device.destroy_sampler(*self, None);
@@ -289,6 +291,7 @@ impl CleanupVkObj for vk::Sampler {
     unsafe fn cleanup_recreation(&self, device: &DeviceMTXG) {}
 }
 
+#[allow(unused_variables)]
 impl CleanupVkObj for BufferMemoryMTXG {
     unsafe fn cleanup(&self, device: &DeviceMTXG) {
         device.device.destroy_buffer(self.buffer, None);
@@ -298,6 +301,7 @@ impl CleanupVkObj for BufferMemoryMTXG {
     unsafe fn cleanup_recreation(&self, device: &DeviceMTXG) {}
 }
 
+#[allow(unused_variables)]
 impl CleanupVkObj for ImageMemoryMTXG {
     unsafe fn cleanup(&self, device: &DeviceMTXG) {
         device.device.destroy_image(self.image, None);
@@ -307,6 +311,7 @@ impl CleanupVkObj for ImageMemoryMTXG {
     unsafe fn cleanup_recreation(&self, device: &DeviceMTXG) {}
 }
 
+#[allow(unused_variables)]
 impl CleanupVkObj for UniformBufferMTXG {
     unsafe fn cleanup(&self, device: &DeviceMTXG) {
         device.device.destroy_buffer(self.buffer, None);  // the buffer used

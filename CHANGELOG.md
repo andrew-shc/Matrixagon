@@ -67,10 +67,15 @@
     * Unlike the previous version where we wait for a whole section to finish loading
     * Gives a more performant point of view
     
+### v0.1.7 [Dec 7, 2020]
+* Finished writing the `renderer` module to abstract some render code away
+* Proceeds to finish integrating the rest of the codebase (thus bump a major version)
+
 ### v0.1.6 [Nov 29, 2020]
 * TEMPORARY: redirected the `main.rs` codebase to a new internal module `renderer` to test the custom renderer
 * Added a new crate `renderer` using `ash` crate for maximal flexibility with the codebase
     * Will be the codebase's rendering module
+ * Changed some codebase supposedly for the better ;)
 
 ### v0.1.5 [Oct 4, 2020]
 * Added world event to organize code and easily manage events

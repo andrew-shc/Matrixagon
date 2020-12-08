@@ -319,9 +319,9 @@ impl CommandBufferMTXG {
                 ..Default::default()
             };
 
-            unsafe { device.device.queue_submit(device.graphics_queue, &[submit_info], vk::Fence::null()) };
+            unsafe { device.device.queue_submit(device.graphics_queue, &[submit_info], vk::Fence::null()) }.unwrap();
             // TODO-CHECKED: put queue wait idle somewhere else as we can optimize the graphics to run while CPU does its thing before calling idle again for the next GPU cmd functions
-            unsafe { device.device.queue_wait_idle(device.graphics_queue) };
+            unsafe { device.device.queue_wait_idle(device.graphics_queue) }.unwrap();
         }
     }
 
@@ -367,6 +367,7 @@ impl CommandBufferMTXG {
     }
 }
 
+#[derive(Clone)]
 pub struct PresenterMTXG {
     pub (crate) device: DeviceMTXG,
     pub (crate) cmd_pool: CommandPoolMTXG,
@@ -441,6 +442,7 @@ impl PresenterMTXG {
     }
 }
 
+#[allow(unused_variables)]
 impl CleanupVkObj for CommandPoolMTXG {
     unsafe fn cleanup(&self, device: &DeviceMTXG) {
         device.device.destroy_command_pool(self.pool, None);
@@ -449,6 +451,7 @@ impl CleanupVkObj for CommandPoolMTXG {
     unsafe fn cleanup_recreation(&self, device: &DeviceMTXG) {}
 }
 
+#[allow(unused_variables)]
 impl CleanupVkObj for CommandBufferMTXG {
     unsafe fn cleanup(&self, device: &DeviceMTXG) {
         device.device.free_command_buffers(self.pool.pool, self.buffer.as_slice());
@@ -460,6 +463,7 @@ impl CleanupVkObj for CommandBufferMTXG {
     }
 }
 
+#[allow(unused_variables)]
 impl CleanupVkObj for PresenterMTXG {
     unsafe fn cleanup(&self, device: &DeviceMTXG) {
         for i in 0..MAX_INFLIGHT_FRAMES {

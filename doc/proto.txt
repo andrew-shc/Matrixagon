@@ -1,0 +1,121 @@
+GOALS:
+TODO: create as much independent interfaces to be as much flexible as possible
+TODO: implement cleanup with minimal to no exposure of cleanup code outside of this module
+
+Major components:
+Vertex struct definition and implementation;
+Setup code (instance, device, swapchain, framebuffer);
+Data buffering (uniforms, images, buffers);
+Descriptors;
+Pipelines;
+Command buffering;
+Check suboptimal and recreation;
+Update host visible buffer/images;
+Single-line render end (cleanup) code;
+
+Components Abstraction program flow:
+Vertex struct definition and implementation;
+Setup code;
+MVP uniform buffering;
+Textures image buffering;
+Descriptors;
+Pipelines;
+
+
+
+==== External Renderer (higher-level abstraction with absolute no ash crate exposure, to use in the game code, which uses game structs to render):
+
+
+
+struct Vertex {
+    pos,
+    col,
+    crd,
+}
+
+// interface to the graphics API
+let render = Renderer::new(app_name, validation_layers);
+
+let txtr_buffer = render.get_image_memory(txtr_buf, width, height, 3D/2D, format);
+// just creates sampler info, will build once first attempted to use
+txtr_buffer.filter(magnified: NEAREST, minimized: NEAREST);
+txtr_buffer.address_mode(u: REPEATED, v: REPEATED);
+txtr_buffer.anisotropy(4.0);
+txtr_buffer.mipmapping();
+
+struct DataStruct {
+
+};
+
+let mvp_buffer = render.get_uniform_buffer_memory::<DataStruct>();
+mvp_buffer.update(DataStruct type);
+
+let descriptor = render.descriptors();
+descriptor.bind_uniform(0, ShaderStage::VERTEX, &mvp_buffer);
+descriptor.bind_sampler(1, ShaderStage::FRAGMENT, &txtr_buffer);
+
+let renderpass = render.renderpass_with_depth();
+
+let cube_pipeline = render.graphics_pipeline<VertexType>(
+    vertex shader SPV (SPIR-V) file,
+    fragment shader SPV (SPIR-V) file,
+    None, // tesc
+    None, // tese
+    None, // geom
+    renderpass,
+    &descriptor,
+    viewport: dimensions,
+    polygon_mode,
+    cull_mode,
+    depth_sampling,
+    transparency,
+);
+
+let ui_pipeline = render.graphics_pipeline<VertexType>(
+    vertex shader SPV (SPIR-V) file,
+    fragment shader SPV (SPIR-V) file,
+    None, // tesc
+    None, // tese
+    None, // geom
+    renderpass,
+    &descriptor,
+    viewport: dimensions,
+    polygon_mode,
+    cull_mode,
+    depth_sampling,
+    transparency,
+);
+
+let vertices = [VertexData {}, ...];
+let indices = ]0,1,2,...];
+
+let vb = render.vertex_buffer(vertices);
+let ib = render.index_buffer(vertices);
+
+let cmd_buf = render.create_command_buffer();
+cmd_buf.begin_depth_pass();
+cmd_buf.draw_pipeline_index(&cube_pipeline, vb, ib, descriptors);
+cmd_buf.end_pass();
+let presenter = cmd_buf.present();
+
+event_loop.run(move || {
+
+if render.recreate() {
+    // command buffer will save what commands were used and use that saved info to rerecord it again internally
+    render.recreate();
+}
+
+mvp_buffer.update(DataStruct type);
+
+presenter.present();
+
+if end {
+    render.end();
+}
+
+});
+
+
+
+
+

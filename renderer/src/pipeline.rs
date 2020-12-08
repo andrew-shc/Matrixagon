@@ -10,8 +10,7 @@ use crate::CleanupVkObj;
 
 
 pub trait VertexInfo {
-    fn impl_binding() -> vk::VertexInputBindingDescription;
-    fn impl_attributes() -> Vec<vk::VertexInputAttributeDescription>;
+    fn attributes() -> Vec<vk::VertexInputAttributeDescription>;
 }
 
 #[derive(Clone)]
@@ -29,21 +28,20 @@ pub struct GraphicsPipelineMTXG {
 }
 
 impl GraphicsPipelineMTXG {
-    pub fn new<V: VertexInfo>(device: &DeviceMTXG,
-                              extent: vk::Extent2D,
-                              renderpass: vk::RenderPass,
-                              descriptors: Option<&DescriptorSetsMTXG>,
-                              vertex: &str,
-                              fragment: &str,
-                              polygon: vk::PolygonMode,
-                              cull: vk::CullModeFlags,
-                              alpha: bool,
-                              depth: bool) -> Self {
+    pub fn new(device: &DeviceMTXG,
+               extent: vk::Extent2D,
+               renderpass: vk::RenderPass,
+               descriptors: Option<&DescriptorSetsMTXG>,
+               vertex: &str,
+               fragment: &str,
+               vert_bindings: vk::VertexInputBindingDescription,
+               vert_attributes: Vec<vk::VertexInputAttributeDescription>,
+               polygon: vk::PolygonMode,
+               cull: vk::CullModeFlags,
+               alpha: bool,
+               depth: bool) -> Self {
         let vert_modl = Self::load_shader(&device.device, vertex, device.debug_mode);
         let frag_modl = Self::load_shader(&device.device, fragment, device.debug_mode);
-
-        let vert_bindings = V::impl_binding();
-        let vert_attributes = V::impl_attributes();
 
         // graphics pipeline
 
@@ -312,9 +310,9 @@ impl GraphicsPipelineMTXG {
         }
     }
 
-    pub fn create_renderpass(device: &DeviceMTXG, format: vk::SurfaceFormatKHR) -> vk::RenderPass {
+    pub fn create_renderpass(device: &DeviceMTXG, format: vk::Format) -> vk::RenderPass {
         let color_attach = vk::AttachmentDescription {
-            format: format.format,
+            format: format,
             samples: vk::SampleCountFlags::TYPE_1,
             load_op: vk::AttachmentLoadOp::CLEAR,
             store_op: vk::AttachmentStoreOp::STORE,
@@ -460,6 +458,7 @@ impl CleanupVkObj for GraphicsPipelineMTXG {
     }
 }
 
+#[allow(unused_variables)]
 impl CleanupVkObj for vk::RenderPass {
     unsafe fn cleanup(&self, device: &DeviceMTXG) {
         device.device.destroy_render_pass(*self, None);
